@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "basic_info_tab",
+  "project_details_section",
   "project",
   "project_name",
   "column_break_cdrd",
@@ -286,13 +287,18 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Project Name"
+  },
+  {
+   "fieldname": "project_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Details"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-30 01:04:37.786721",
+ "modified": "2026-01-30 02:47:20.709313",
  "modified_by": "Administrator",
  "module": "greenwheels",
  "name": "Master Data",

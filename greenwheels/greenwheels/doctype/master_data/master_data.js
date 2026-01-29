@@ -407,6 +407,166 @@ frappe.ui.form.on("Master Data", {
 		if (frappe.meta.has_field(frm.doctype, "disable_rounded_total") && !frm.doc.disable_rounded_total) {
 			frm.set_value("disable_rounded_total", 1);
 		}
+
+		// Hide the dashboard's built-in Connections section (we'll create a custom one)
+		if (frm.dashboard && frm.dashboard.links_area) {
+			frm.dashboard.links_area.hide();
+		}
+
+		// Add Connections section with links to Purchase Orders and Delivery Note
+		if (!frm.is_new()) {
+			// Wait for dashboard to be initialized if not ready yet
+			if (frm.dashboard && frm.dashboard.transactions_area) {
+				frm.events.render_connections(frm);
+			} else {
+				// Retry after a short delay if dashboard is not ready
+				setTimeout(function() {
+					if (frm.dashboard && frm.dashboard.transactions_area) {
+						frm.events.render_connections(frm);
+					}
+					// Also hide the dashboard Connections section in the retry
+					if (frm.dashboard && frm.dashboard.links_area) {
+						frm.dashboard.links_area.hide();
+					}
+				}, 100);
+			}
+		}
+	},
+
+	render_connections: function (frm) {
+		// Clear any existing custom connection links
+		if (frm.dashboard && frm.dashboard.transactions_area) {
+			frm.dashboard.transactions_area.find(".custom-master-data-link").remove();
+		}
+
+		// Show Connections section if there are any linked documents
+		const has_links = 
+			(frm.doc.taxi_po_name) ||
+			(frm.doc.crusher_po_name && !frm.doc.crusher_included) ||
+			(frm.doc.delivery_note_name);
+
+		if (!has_links) {
+			return;
+		}
+
+		// Hide the dashboard's built-in Connections section since we're creating a custom one
+		if (frm.dashboard && frm.dashboard.links_area) {
+			frm.dashboard.links_area.hide();
+		}
+
+		// Create a group for Master Data links
+		const links_group = $('<div class="row"></div>');
+		const links_col = $('<div class="col-md-4"></div>');
+		const links_title = $('<div class="form-link-title"><span>' + __("Linked Documents") + '</span></div>');
+		links_col.append(links_title);
+
+		// Add Taxi Purchase Order link
+		if (frm.doc.taxi_po_name) {
+			const taxi_po_link = $('<div class="document-link custom-master-data-link" data-doctype="Purchase Order" data-name="' + frm.doc.taxi_po_name + '"></div>');
+			taxi_po_link.html(`
+				<div class="document-link-badge" data-doctype="Purchase Order">
+					<span class="count hidden"></span>
+					<a class="badge-link" href="#" data-doctype="Purchase Order" data-name="${frm.doc.taxi_po_name}">${__("Taxi Purchase Order")}</a>
+				</div>
+			`);
+			links_col.append(taxi_po_link);
+		}
+
+		// Add Crusher Purchase Order link (only if crusher_included is false)
+		if (frm.doc.crusher_po_name && !frm.doc.crusher_included) {
+			const crusher_po_link = $('<div class="document-link custom-master-data-link" data-doctype="Purchase Order" data-name="' + frm.doc.crusher_po_name + '"></div>');
+			crusher_po_link.html(`
+				<div class="document-link-badge" data-doctype="Purchase Order">
+					<span class="count hidden"></span>
+					<a class="badge-link" href="#" data-doctype="Purchase Order" data-name="${frm.doc.crusher_po_name}">${__("Crusher Purchase Order")}</a>
+				</div>
+			`);
+			links_col.append(crusher_po_link);
+		}
+
+		// Add Delivery Note link
+		if (frm.doc.delivery_note_name) {
+			const dn_link = $('<div class="document-link custom-master-data-link" data-doctype="Delivery Note" data-name="' + frm.doc.delivery_note_name + '"></div>');
+			dn_link.html(`
+				<div class="document-link-badge" data-doctype="Delivery Note">
+					<span class="count hidden"></span>
+					<a class="badge-link" href="#" data-doctype="Delivery Note" data-name="${frm.doc.delivery_note_name}">${__("Delivery Note")}</a>
+				</div>
+			`);
+			links_col.append(dn_link);
+		}
+
+		// Only append if we have links
+		if (links_col.children(".document-link").length > 0) {
+			links_group.append(links_col);
+			
+			// Create a proper Connections section wrapper with dashboard styling
+			const connections_section = $('<div class="row form-dashboard-section form-links card-section" data-fieldname="master_data_connections"></div>');
+			const section_head = $('<div class="section-head collapsible"><span>' + __("Connections") + '</span></div>');
+			const section_body = $('<div class="section-body"></div>');
+			const transactions_container = $('<div class="transactions"></div>');
+			
+			transactions_container.append(links_group);
+			section_body.append(transactions_container);
+			connections_section.append(section_head);
+			connections_section.append(section_body);
+			
+			// Function to append Connections section below project_details_section
+			const appendLinks = function() {
+				// Remove any existing custom connections section (in case of re-render)
+				if (frm.layout && frm.layout.wrapper) {
+					frm.layout.wrapper.find('[data-fieldname="master_data_connections"]').remove();
+				}
+				if (frm.dashboard && frm.dashboard.transactions_area) {
+					frm.dashboard.transactions_area.find(".custom-master-data-link").closest(".row").remove();
+				}
+				
+				// Find the project_details_section wrapper in the form layout
+				let project_details_wrapper = null;
+				if (frm.layout && frm.layout.wrapper) {
+					project_details_wrapper = frm.layout.wrapper.find('[data-fieldname="project_details_section"]');
+				}
+				
+				// If project_details_section exists, insert Connections section after it
+				if (project_details_wrapper && project_details_wrapper.length > 0) {
+					// Find the parent section wrapper (form-section) and insert after it
+					const project_section = project_details_wrapper.closest('.form-section, .form-dashboard-section');
+					if (project_section.length > 0) {
+						project_section.after(connections_section);
+					} else {
+						// Fallback: insert after the field wrapper
+						project_details_wrapper.after(connections_section);
+					}
+					
+					// Attach event handlers after insertion using event delegation
+					connections_section.off("click", ".badge-link").on("click", ".badge-link", function(e) {
+						e.preventDefault();
+						const doctype = $(this).attr("data-doctype");
+						const docname = $(this).attr("data-name");
+						if (doctype && docname) {
+							frappe.set_route("Form", doctype, docname);
+						}
+					});
+				} else if (frm.dashboard && frm.dashboard.transactions_area) {
+					// Fallback: append to the very bottom of the transactions area
+					frm.dashboard.transactions_area.append(links_group);
+					// Attach event handlers for fallback case
+					links_group.off("click", ".badge-link").on("click", ".badge-link", function(e) {
+						e.preventDefault();
+						const doctype = $(this).attr("data-doctype");
+						const docname = $(this).attr("data-name");
+						if (doctype && docname) {
+							frappe.set_route("Form", doctype, docname);
+						}
+					});
+				}
+			};
+			
+			// Try immediately first
+			appendLinks();
+			// Also try after a delay to ensure it's after Frappe's async rendering
+			setTimeout(appendLinks, 300);
+		}
 	},
 });
 
