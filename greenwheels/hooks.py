@@ -137,13 +137,15 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Master Data": {
+		"validate": "greenwheels.greenwheels.doctype.master_data.master_data.validate_master_data",
+		"before_save": "greenwheels.greenwheels.doctype.master_data.master_data.before_save_master_data",
+		"on_submit": "greenwheels.greenwheels.doctype.master_data.master_data.on_submit_master_data",
+		"on_cancel": "greenwheels.greenwheels.doctype.master_data.master_data.on_cancel_master_data",
+		"on_update_after_submit": "greenwheels.greenwheels.doctype.master_data.master_data.on_update_after_submit_master_data",
+	}
+}
 
 # Scheduled Tasks
 # ---------------

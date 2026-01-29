@@ -1,0 +1,322 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{project_name}-{YYYY}-{###}",
+ "creation": "2026-01-29 14:32:23.956740",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_info_tab",
+  "project",
+  "project_name",
+  "column_break_cdrd",
+  "company",
+  "section_break_srsu",
+  "amended_from",
+  "taxi_po_tab",
+  "taxi",
+  "crusher_included",
+  "column_break_dnpu",
+  "taxi_date",
+  "section_break_kbsa",
+  "taxi_items",
+  "section_break_plxi",
+  "taxi_taxes",
+  "section_break_foxx",
+  "taxi_grand_total",
+  "section_break_usks",
+  "taxi_po_name",
+  "crusher_po_tab",
+  "crusher",
+  "column_break_nbph",
+  "crusher_date",
+  "items_section",
+  "crusher_items",
+  "taxes_section",
+  "crusher_taxes",
+  "section_break_cifz",
+  "crusher_grand_total",
+  "section_break_rgti",
+  "crusher_po_name",
+  "do_tab",
+  "customer",
+  "date",
+  "time",
+  "section_break_fwda",
+  "items",
+  "section_break_hqht",
+  "taxes",
+  "section_break_jylv",
+  "do_grand_total",
+  "section_break_uvgx",
+  "delivery_note_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_srsu",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Master Data",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "basic_info_tab",
+   "fieldtype": "Tab Break",
+   "label": "Basic Info"
+  },
+  {
+   "fieldname": "taxi_po_tab",
+   "fieldtype": "Tab Break",
+   "label": "Taxi PO"
+  },
+  {
+   "fieldname": "taxi",
+   "fieldtype": "Link",
+   "label": "Taxi",
+   "options": "Supplier"
+  },
+  {
+   "depends_on": "eval:!doc.crusher_included",
+   "fieldname": "crusher_po_tab",
+   "fieldtype": "Tab Break",
+   "label": "Crusher PO"
+  },
+  {
+   "fieldname": "do_tab",
+   "fieldtype": "Tab Break",
+   "label": "Delivery Order"
+  },
+  {
+   "fieldname": "column_break_cdrd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "taxi_date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "section_break_kbsa",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "taxi_items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Purchase Order Item"
+  },
+  {
+   "fieldname": "section_break_plxi",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "taxi_taxes",
+   "fieldtype": "Table",
+   "label": "Taxes",
+   "options": "Purchase Taxes and Charges"
+  },
+  {
+   "fieldname": "section_break_foxx",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "taxi_grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "options": "currency"
+  },
+  {
+   "fieldname": "crusher",
+   "fieldtype": "Link",
+   "label": "Crusher",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "crusher_date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "items_section",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
+   "fieldname": "crusher_items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Purchase Order Item"
+  },
+  {
+   "fieldname": "taxes_section",
+   "fieldtype": "Section Break",
+   "label": "Taxes"
+  },
+  {
+   "fieldname": "crusher_taxes",
+   "fieldtype": "Table",
+   "label": "Taxes",
+   "options": "Purchase Taxes and Charges"
+  },
+  {
+   "fieldname": "section_break_cifz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "crusher_grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "options": "currency"
+  },
+  {
+   "fieldname": "column_break_dnpu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_nbph",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "time",
+   "fieldtype": "Time",
+   "label": "Time"
+  },
+  {
+   "fieldname": "section_break_fwda",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Delivery Note Item"
+  },
+  {
+   "fieldname": "section_break_hqht",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "taxes",
+   "fieldtype": "Table",
+   "label": "Taxes",
+   "options": "Sales Taxes and Charges"
+  },
+  {
+   "fieldname": "section_break_jylv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "do_grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "options": "currency"
+  },
+  {
+   "default": "0",
+   "fieldname": "crusher_included",
+   "fieldtype": "Check",
+   "label": "Crusher Included"
+  },
+  {
+   "fieldname": "section_break_usks",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "taxi_po_name",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Taxi Purchase Order",
+   "options": "Purchase Order"
+  },
+  {
+   "fieldname": "section_break_rgti",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "crusher_po_name",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Crusher Purchase Order",
+   "options": "Purchase Order"
+  },
+  {
+   "fieldname": "section_break_uvgx",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "delivery_note_name",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Delivery Note",
+   "options": "Delivery Note"
+  },
+  {
+   "fetch_from": "project.project_name",
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Project Name"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-01-30 01:04:37.786721",
+ "modified_by": "Administrator",
+ "module": "greenwheels",
+ "name": "Master Data",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "project"
+}
