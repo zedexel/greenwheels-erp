@@ -8,7 +8,7 @@ You can install this app using the [bench](https://github.com/frappe/bench) CLI:
 
 ```bash
 cd $PATH_TO_YOUR_BENCH
-bench get-app https://github.com/zedexel/greenwheels-erp --branch main
+bench get-app https://github.com/zedexel/greenwheels-erp
 bench install-app greenwheels
 ```
 
