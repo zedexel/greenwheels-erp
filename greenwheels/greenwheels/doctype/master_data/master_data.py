@@ -2,10 +2,12 @@
 # For license information, please see license.txt
 
 import frappe
+import json
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate
 from erpnext import get_company_currency
+from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
 
 
 class MasterData(Document):
@@ -54,8 +56,160 @@ class MasterData(Document):
 		if not self.items or len(self.items) == 0:
 			frappe.throw(_("Please add at least one item in Delivery Note"))
 
+	def calculate_taxi_po_totals(self):
+		"""Calculate taxes and totals for Taxi PO section"""
+		if not self.taxi_items or len(self.taxi_items) == 0:
+			self.taxi_grand_total = 0
+			return
+
+		# Create a temporary Purchase Order document for calculation
+		temp_doc = frappe.new_doc("Purchase Order")
+		temp_doc.company = self.company
+		temp_doc.currency = get_company_currency(self.company)
+		temp_doc.conversion_rate = 1.0
+		temp_doc.disable_rounded_total = 1
+		
+		# Copy items
+		for item in self.taxi_items:
+			po_item = temp_doc.append("items", {})
+			for field, value in item.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					po_item.set(field, value)
+		
+		# Copy taxes
+		for tax in (self.taxi_taxes or []):
+			po_tax = temp_doc.append("taxes", {})
+			for field, value in tax.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					po_tax.set(field, value)
+		
+		# Calculate taxes and totals
+		try:
+			temp_doc.flags.ignore_validate = True
+			calculate_taxes_and_totals(temp_doc)
+			self.taxi_grand_total = temp_doc.grand_total or temp_doc.net_total or 0
+		except Exception as e:
+			frappe.log_error(f"Error calculating taxi PO totals: {str(e)}")
+			# Fallback: calculate simple total
+			self.taxi_grand_total = sum(flt(item.net_amount or item.amount or 0) for item in self.taxi_items)
+			if self.taxi_taxes:
+				for tax in self.taxi_taxes:
+					if tax.charge_type == "On Net Total":
+						tax_amount = flt(tax.rate or 0) / 100 * self.taxi_grand_total
+					elif tax.charge_type == "Actual":
+						tax_amount = flt(tax.tax_amount or 0)
+					else:
+						tax_amount = 0
+					self.taxi_grand_total += tax_amount
+
+	def calculate_crusher_po_totals(self):
+		"""Calculate taxes and totals for Crusher PO section"""
+		if not self.crusher_items or len(self.crusher_items) == 0:
+			self.crusher_grand_total = 0
+			return
+
+		# Create a temporary Purchase Order document for calculation
+		temp_doc = frappe.new_doc("Purchase Order")
+		temp_doc.company = self.company
+		temp_doc.currency = get_company_currency(self.company)
+		temp_doc.conversion_rate = 1.0
+		temp_doc.disable_rounded_total = 1
+		
+		# Copy items
+		for item in self.crusher_items:
+			po_item = temp_doc.append("items", {})
+			for field, value in item.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					po_item.set(field, value)
+		
+		# Copy taxes
+		for tax in (self.crusher_taxes or []):
+			po_tax = temp_doc.append("taxes", {})
+			for field, value in tax.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					po_tax.set(field, value)
+		
+		# Calculate taxes and totals
+		try:
+			temp_doc.flags.ignore_validate = True
+			calculate_taxes_and_totals(temp_doc)
+			self.crusher_grand_total = temp_doc.grand_total or temp_doc.net_total or 0
+		except Exception as e:
+			frappe.log_error(f"Error calculating crusher PO totals: {str(e)}")
+			# Fallback: calculate simple total
+			self.crusher_grand_total = sum(flt(item.net_amount or item.amount or 0) for item in self.crusher_items)
+			if self.crusher_taxes:
+				for tax in self.crusher_taxes:
+					if tax.charge_type == "On Net Total":
+						tax_amount = flt(tax.rate or 0) / 100 * self.crusher_grand_total
+					elif tax.charge_type == "Actual":
+						tax_amount = flt(tax.tax_amount or 0)
+					else:
+						tax_amount = 0
+					self.crusher_grand_total += tax_amount
+
+	def calculate_delivery_note_totals(self):
+		"""Calculate taxes and totals for Delivery Note section"""
+		if not self.items or len(self.items) == 0:
+			self.do_grand_total = 0
+			return
+
+		# Create a temporary Delivery Note document for calculation
+		temp_doc = frappe.new_doc("Delivery Note")
+		temp_doc.company = self.company
+		temp_doc.currency = get_company_currency(self.company)
+		temp_doc.conversion_rate = 1.0
+		temp_doc.disable_rounded_total = 1
+		
+		# Copy items
+		for item in self.items:
+			dn_item = temp_doc.append("items", {})
+			for field, value in item.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					dn_item.set(field, value)
+		
+		# Copy taxes
+		for tax in (self.taxes or []):
+			dn_tax = temp_doc.append("taxes", {})
+			for field, value in tax.as_dict().items():
+				if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					dn_tax.set(field, value)
+		
+		# Calculate taxes and totals
+		try:
+			temp_doc.flags.ignore_validate = True
+			calculate_taxes_and_totals(temp_doc)
+			self.do_grand_total = temp_doc.grand_total or temp_doc.net_total or 0
+		except Exception as e:
+			frappe.log_error(f"Error calculating delivery note totals: {str(e)}")
+			# Fallback: calculate simple total
+			self.do_grand_total = sum(flt(item.net_amount or item.amount or 0) for item in self.items)
+			if self.taxes:
+				for tax in self.taxes:
+					if tax.charge_type == "On Net Total":
+						tax_amount = flt(tax.rate or 0) / 100 * self.do_grand_total
+					elif tax.charge_type == "Actual":
+						tax_amount = flt(tax.tax_amount or 0)
+					else:
+						tax_amount = 0
+					self.do_grand_total += tax_amount
+
 	def before_save(self):
 		"""Create or update Purchase Orders and Delivery Note before saving"""
+		# Convert item_wise_tax_detail from dict to JSON string for all tax tables
+		# This is required because Frappe stores this field as JSON in the database
+		for tax_table in [self.taxi_taxes, self.crusher_taxes, self.taxes]:
+			if tax_table:
+				for tax in tax_table:
+					if tax.get("item_wise_tax_detail") and isinstance(tax.item_wise_tax_detail, dict):
+						tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail, separators=(",", ":"))
+		
+		# Calculate totals for all sections first
+		self.calculate_taxi_po_totals()
+		if not self.crusher_included:
+			self.calculate_crusher_po_totals()
+		self.calculate_delivery_note_totals()
+
 		# Create/update Taxi Purchase Order
 		self.create_or_update_purchase_order(
 			supplier=self.taxi,
@@ -251,7 +405,9 @@ class MasterData(Document):
 						if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
 							po_tax.set(field, value)
 
+				# Calculate taxes and totals on PO
 				po_doc.flags.ignore_validate = True
+				po_doc.calculate_taxes_and_totals()
 				po_doc.save()
 				return po_doc.name
 
@@ -285,7 +441,9 @@ class MasterData(Document):
 					if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
 						po_tax.set(field, value)
 
+			# Calculate taxes and totals on PO
 			po_doc.flags.ignore_validate = True
+			po_doc.calculate_taxes_and_totals()
 			po_doc.insert()
 			self.set(field_name, po_doc.name)
 			return po_doc.name
@@ -337,7 +495,9 @@ class MasterData(Document):
 						if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
 							dn_tax.set(field, value)
 
+				# Calculate taxes and totals on DN
 				dn_doc.flags.ignore_validate = True
+				dn_doc.calculate_taxes_and_totals()
 				dn_doc.save()
 				return dn_doc.name
 
@@ -379,7 +539,9 @@ class MasterData(Document):
 					if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
 						dn_tax.set(field, value)
 
+			# Calculate taxes and totals on DN
 			dn_doc.flags.ignore_validate = True
+			dn_doc.calculate_taxes_and_totals()
 			dn_doc.insert()
 			self.delivery_note_name = dn_doc.name
 			return dn_doc.name
