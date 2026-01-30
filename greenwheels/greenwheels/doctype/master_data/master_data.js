@@ -408,6 +408,11 @@ frappe.ui.form.on("Master Data", {
 			frm.set_value("disable_rounded_total", 1);
 		}
 
+		// Handle amendments - create amended versions of linked documents if they're cancelled
+		if (frm.doc.amended_from && frm.doc.docstatus === 0) {
+			frm.events.handle_amendment_linked_documents(frm);
+		}
+
 		// Hide the dashboard's built-in Connections section (we'll create a custom one)
 		if (frm.dashboard && frm.dashboard.links_area) {
 			frm.dashboard.links_area.hide();
@@ -475,6 +480,94 @@ frappe.ui.form.on("Master Data", {
 				__("Get Items From")
 			);
 		}
+	},
+
+	handle_amendment_linked_documents: function (frm) {
+		/**Handle amendments - create amended versions of linked documents if they're cancelled*/
+		const linked_docs = [];
+		
+		// Collect all linked documents that need to be checked
+		if (frm.doc.taxi_po_name) {
+			linked_docs.push({
+				field_name: "taxi_po_name",
+				doc_name: frm.doc.taxi_po_name,
+				doctype: "Purchase Order"
+			});
+		}
+		
+		if (frm.doc.crusher_po_name && !frm.doc.crusher_included) {
+			linked_docs.push({
+				field_name: "crusher_po_name",
+				doc_name: frm.doc.crusher_po_name,
+				doctype: "Purchase Order"
+			});
+		}
+		
+		if (frm.doc.delivery_note_name) {
+			linked_docs.push({
+				field_name: "delivery_note_name",
+				doc_name: frm.doc.delivery_note_name,
+				doctype: "Delivery Note"
+			});
+		}
+		
+		if (linked_docs.length === 0) {
+			return;
+		}
+		
+		// Process linked documents sequentially to avoid race conditions
+		let processed_count = 0;
+		
+		linked_docs.forEach(function(linked_doc) {
+			// Check if document exists and is cancelled
+			frappe.db.get_value(linked_doc.doctype, linked_doc.doc_name, ["docstatus", "name"], function(r) {
+				processed_count++;
+				
+				if (r && r.docstatus === 2) {
+					// Document is cancelled, check if amended version already exists
+					frappe.db.get_value(linked_doc.doctype, {"amended_from": linked_doc.doc_name}, "name", function(amended_r) {
+						if (amended_r && amended_r.name) {
+							// Amended version already exists, update the link
+							frm.set_value(linked_doc.field_name, amended_r.name);
+						} else {
+							// Create amended version using custom method
+							frappe.call({
+								method: "greenwheels.greenwheels.doctype.master_data.master_data.create_amended_linked_document",
+								args: {
+									doctype: linked_doc.doctype,
+									source_name: linked_doc.doc_name
+								},
+								callback: function(copy_r) {
+									if (copy_r && copy_r.message && copy_r.message.name) {
+										// Update the link to point to the new amended document
+										frm.set_value(linked_doc.field_name, copy_r.message.name);
+										const message = copy_r.message.already_exists 
+											? __("{0} amended version already exists: {1}", [linked_doc.doctype, copy_r.message.name])
+											: __("{0} amended version created: {1}", [linked_doc.doctype, copy_r.message.name]);
+										frappe.show_alert({
+											message: message,
+											indicator: "green"
+										});
+									}
+								},
+								error: function(err) {
+									console.error("Error creating amended " + linked_doc.doctype + ":", err);
+									frappe.show_alert({
+										message: __("Error creating amended {0}: {1}", [linked_doc.doctype, err.message || err]),
+										indicator: "red"
+									});
+								}
+							});
+						}
+					});
+				}
+				
+				// If all documents are processed and none needed amendment, we're done
+				if (processed_count === linked_docs.length) {
+					// All checks completed
+				}
+			});
+		});
 	},
 
 	render_connections: function (frm) {

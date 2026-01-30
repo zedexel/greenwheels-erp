@@ -13,6 +13,17 @@ from erpnext.controllers.taxes_and_totals import calculate_taxes_and_totals
 class MasterData(Document):
 	def validate(self):
 		"""Validate Master Data document"""
+		# Handle amendments FIRST - create amended versions of linked documents if they're cancelled
+		# This must happen before link validation to prevent "Cannot link cancelled document" errors
+		if self.amended_from:
+			# Temporarily ignore link validation while we fix cancelled links
+			self.flags.ignore_links = True
+			try:
+				self.handle_amendment_linked_documents()
+			finally:
+				# Re-enable link validation after fixing links
+				self.flags.ignore_links = False
+
 		# Get company currency for use in child documents
 		if self.company:
 			self._company_currency = get_company_currency(self.company)
@@ -196,6 +207,7 @@ class MasterData(Document):
 
 	def before_save(self):
 		"""Create or update Purchase Orders and Delivery Note before saving"""
+		# Note: Amendment handling is done in validate() to prevent link validation errors
 		# Convert item_wise_tax_detail from dict to JSON string for all tax tables
 		# This is required because Frappe stores this field as JSON in the database
 		for tax_table in [self.taxi_taxes, self.crusher_taxes, self.taxes]:
@@ -203,7 +215,7 @@ class MasterData(Document):
 				for tax in tax_table:
 					if tax.get("item_wise_tax_detail") and isinstance(tax.item_wise_tax_detail, dict):
 						tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail, separators=(",", ":"))
-		
+
 		# Calculate totals for all sections first
 		self.calculate_taxi_po_totals()
 		if not self.crusher_included:
@@ -319,52 +331,75 @@ class MasterData(Document):
 				except (frappe.DoesNotExistError, frappe.LinkExistsError):
 					pass
 
-	def on_update_after_submit(self):
-		"""Handle amendments - create amended versions of linked documents"""
+	def handle_amendment_linked_documents(self):
+		"""Handle amendments - create amended versions of linked documents if they're cancelled"""
 		# Handle Taxi PO amendment
-		if self.taxi_po_name and self.amended_from:
+		if self.taxi_po_name:
 			try:
-				old_master_data = frappe.get_doc("Master Data", self.amended_from)
-				if old_master_data.taxi_po_name:
-					old_po = frappe.get_doc("Purchase Order", old_master_data.taxi_po_name)
-					if old_po.docstatus == 2:  # Cancelled
+				old_po = frappe.get_doc("Purchase Order", self.taxi_po_name)
+				# If PO is cancelled, create amended version
+				if old_po.docstatus == 2:  # Cancelled (2)
+					# Check if amended version already exists
+					amended_po_name = frappe.db.get_value("Purchase Order", {"amended_from": old_po.name}, "name")
+					if amended_po_name:
+						self.taxi_po_name = amended_po_name
+					else:
 						# Create amended PO
 						amended_po = frappe.copy_doc(old_po)
 						amended_po.amended_from = old_po.name
+						amended_po.flags.ignore_validate = True
+						amended_po.flags.ignore_links = True  # Prevent link validation errors
 						amended_po.insert()
 						self.taxi_po_name = amended_po.name
-			except frappe.DoesNotExistError:
+			except (frappe.DoesNotExistError, frappe.LinkExistsError, frappe.CancelledLinkError):
 				pass
 
 		# Handle Crusher PO amendment
-		if self.crusher_po_name and self.amended_from:
+		if self.crusher_po_name:
 			try:
-				old_master_data = frappe.get_doc("Master Data", self.amended_from)
-				if old_master_data.crusher_po_name:
-					old_po = frappe.get_doc("Purchase Order", old_master_data.crusher_po_name)
-					if old_po.docstatus == 2:  # Cancelled
+				old_po = frappe.get_doc("Purchase Order", self.crusher_po_name)
+				# If PO is cancelled, create amended version
+				if old_po.docstatus == 2:  # Cancelled (2)
+					# Check if amended version already exists
+					amended_po_name = frappe.db.get_value("Purchase Order", {"amended_from": old_po.name}, "name")
+					if amended_po_name:
+						self.crusher_po_name = amended_po_name
+					else:
 						# Create amended PO
 						amended_po = frappe.copy_doc(old_po)
 						amended_po.amended_from = old_po.name
+						amended_po.flags.ignore_validate = True
+						amended_po.flags.ignore_links = True  # Prevent link validation errors
 						amended_po.insert()
 						self.crusher_po_name = amended_po.name
-			except frappe.DoesNotExistError:
+			except (frappe.DoesNotExistError, frappe.LinkExistsError, frappe.CancelledLinkError):
 				pass
 
 		# Handle Delivery Note amendment
-		if self.delivery_note_name and self.amended_from:
+		if self.delivery_note_name:
 			try:
-				old_master_data = frappe.get_doc("Master Data", self.amended_from)
-				if old_master_data.delivery_note_name:
-					old_dn = frappe.get_doc("Delivery Note", old_master_data.delivery_note_name)
-					if old_dn.docstatus == 2:  # Cancelled
+				old_dn = frappe.get_doc("Delivery Note", self.delivery_note_name)
+				# If DN is cancelled, create amended version
+				if old_dn.docstatus == 2:  # Cancelled (2)
+					# Check if amended version already exists
+					amended_dn_name = frappe.db.get_value("Delivery Note", {"amended_from": old_dn.name}, "name")
+					if amended_dn_name:
+						self.delivery_note_name = amended_dn_name
+					else:
 						# Create amended DN
 						amended_dn = frappe.copy_doc(old_dn)
 						amended_dn.amended_from = old_dn.name
+						amended_dn.flags.ignore_validate = True
+						amended_dn.flags.ignore_links = True  # Prevent link validation errors
 						amended_dn.insert()
 						self.delivery_note_name = amended_dn.name
-			except frappe.DoesNotExistError:
+			except (frappe.DoesNotExistError, frappe.LinkExistsError, frappe.CancelledLinkError):
 				pass
+
+	def on_update_after_submit(self):
+		"""Handle amendments after submit - this is called when updating an already submitted document"""
+		# Amendments are now handled in before_save, but keep this for any additional logic needed
+		pass
 
 	def create_or_update_purchase_order(self, supplier, transaction_date, items, taxes, grand_total, field_name):
 		"""Create or update Purchase Order document"""
@@ -374,7 +409,17 @@ class MasterData(Document):
 			# Update existing PO
 			try:
 				po_doc = frappe.get_doc("Purchase Order", po_name)
-				if po_doc.docstatus == 1:
+				if po_doc.docstatus == 2:
+					# PO is cancelled - this should have been handled in handle_amendment_linked_documents
+					# But if we get here, create amended version
+					amended_po = frappe.copy_doc(po_doc)
+					amended_po.amended_from = po_doc.name
+					amended_po.flags.ignore_validate = True
+					amended_po.insert()
+					po_name = amended_po.name
+					self.set(field_name, po_name)
+					po_doc = amended_po
+				elif po_doc.docstatus == 1:
 					frappe.throw(_("Cannot update submitted Purchase Order {0}").format(po_name))
 
 				# Update fields
@@ -456,7 +501,17 @@ class MasterData(Document):
 			# Update existing DN
 			try:
 				dn_doc = frappe.get_doc("Delivery Note", dn_name)
-				if dn_doc.docstatus == 1:
+				if dn_doc.docstatus == 2:
+					# DN is cancelled - this should have been handled in handle_amendment_linked_documents
+					# But if we get here, create amended version
+					amended_dn = frappe.copy_doc(dn_doc)
+					amended_dn.amended_from = dn_doc.name
+					amended_dn.flags.ignore_validate = True
+					amended_dn.insert()
+					dn_name = amended_dn.name
+					self.delivery_note_name = dn_name
+					dn_doc = amended_dn
+				elif dn_doc.docstatus == 1:
 					frappe.throw(_("Cannot update submitted Delivery Note {0}").format(dn_name))
 
 				# Update fields
@@ -484,9 +539,18 @@ class MasterData(Document):
 				# Add items
 				for item in self.items:
 					dn_item = dn_doc.append("items", {})
-					for field, value in item.as_dict().items():
-						if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+					item_dict = item.as_dict()
+					for field, value in item_dict.items():
+						# Exclude system fields and dummy fields (we'll handle dummy fields separately)
+						if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx", 
+										"custom_sales_order_against_dummy", "custom_against_sales_order_item_dummy"]:
 							dn_item.set(field, value)
+					
+					# Copy from dummy fields to actual fields to prevent double counting
+					if item_dict.get("custom_sales_order_against_dummy"):
+						dn_item.against_sales_order = item_dict.get("custom_sales_order_against_dummy")
+					if item_dict.get("custom_against_sales_order_item_dummy"):
+						dn_item.so_detail = item_dict.get("custom_against_sales_order_item_dummy")
 
 				# Add taxes
 				for tax in self.taxes:
@@ -528,9 +592,18 @@ class MasterData(Document):
 			# Add items
 			for item in self.items:
 				dn_item = dn_doc.append("items", {})
-				for field, value in item.as_dict().items():
-					if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx"]:
+				item_dict = item.as_dict()
+				for field, value in item_dict.items():
+					# Exclude system fields and dummy fields (we'll handle dummy fields separately)
+					if field not in ["name", "owner", "creation", "modified", "modified_by", "parent", "parentfield", "parenttype", "doctype", "idx",
+									"custom_sales_order_against_dummy", "custom_against_sales_order_item_dummy"]:
 						dn_item.set(field, value)
+				
+				# Copy from dummy fields to actual fields to prevent double counting
+				if item_dict.get("custom_sales_order_against_dummy"):
+					dn_item.against_sales_order = item_dict.get("custom_sales_order_against_dummy")
+				if item_dict.get("custom_against_sales_order_item_dummy"):
+					dn_item.so_detail = item_dict.get("custom_against_sales_order_item_dummy")
 
 			# Add taxes
 			for tax in self.taxes:
@@ -614,9 +687,13 @@ def make_delivery_note_from_sales_order(source_name, target_doc=None, kwargs=Non
 				or item_group.get("selling_cost_center")
 			)
 
-		# Set Sales Order references (these are already set by field_map, but ensure they're set)
-		target.against_sales_order = source_parent.name
-		target.so_detail = source.name
+		# Set Sales Order references in dummy fields to prevent double counting
+		# These will be copied to actual fields when creating the Delivery Note
+		target.custom_sales_order_against_dummy = source_parent.name
+		target.custom_against_sales_order_item_dummy = source.name
+		# Clear actual fields to prevent double counting
+		target.against_sales_order = None
+		target.so_detail = None
 
 	# Mapper: Only map Sales Order Items, NOT taxes or other child tables
 	mapper = {
@@ -628,8 +705,8 @@ def make_delivery_note_from_sales_order(source_name, target_doc=None, kwargs=Non
 			"doctype": "Delivery Note Item",
 			"field_map": {
 				"rate": "rate",
-				"name": "so_detail",
-				"parent": "against_sales_order",
+				"name": "custom_against_sales_order_item_dummy",
+				"parent": "custom_sales_order_against_dummy",
 			},
 			"condition": lambda d: condition(d) and select_item(d),
 			"postprocess": update_item,
@@ -692,3 +769,39 @@ def on_update_after_submit_master_data(doc, method):
 	"""Hook function for on_update_after_submit event - called after doc.on_update_after_submit()"""
 	# Additional on_update_after_submit logic can be added here if needed
 	pass
+
+
+@frappe.whitelist()
+def create_amended_linked_document(doctype, source_name):
+	"""
+	Create an amended version of a linked document (Purchase Order or Delivery Note).
+	This method is called from the frontend when Master Data is amended.
+	"""
+	if not doctype or not source_name:
+		frappe.throw(_("Doctype and source name are required"))
+	
+	# Check if source document exists and is cancelled
+	try:
+		source_doc = frappe.get_doc(doctype, source_name)
+		if source_doc.docstatus != 2:
+			frappe.throw(_("Source document {0} is not cancelled").format(source_name))
+		
+		# Check if amended version already exists
+		amended_name = frappe.db.get_value(doctype, {"amended_from": source_name}, "name")
+		if amended_name:
+			return {"name": amended_name, "already_exists": True}
+		
+		# Create amended version
+		amended_doc = frappe.copy_doc(source_doc)
+		amended_doc.amended_from = source_name
+		amended_doc.flags.ignore_validate = True
+		amended_doc.flags.ignore_links = True
+		amended_doc.insert()
+		
+		return {"name": amended_doc.name, "already_exists": False}
+		
+	except frappe.DoesNotExistError:
+		frappe.throw(_("Source document {0} does not exist").format(source_name))
+	except Exception as e:
+		frappe.log_error(f"Error creating amended {doctype}: {str(e)}")
+		frappe.throw(_("Error creating amended document: {0}").format(str(e)))

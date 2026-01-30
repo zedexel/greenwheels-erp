@@ -144,6 +144,18 @@ doc_events = {
 		"on_submit": "greenwheels.greenwheels.doctype.master_data.master_data.on_submit_master_data",
 		"on_cancel": "greenwheels.greenwheels.doctype.master_data.master_data.on_cancel_master_data",
 		"on_update_after_submit": "greenwheels.greenwheels.doctype.master_data.master_data.on_update_after_submit_master_data",
+	},
+	"Sales Order": {
+		"on_submit": "greenwheels.greenwheels.custom.sales_order.update_custom_remaining_qty",
+		"on_update_after_submit": "greenwheels.greenwheels.custom.sales_order.update_custom_remaining_qty"
+	},
+	"Delivery Note": {
+		"on_submit": "greenwheels.greenwheels.custom.sales_order.update_so_custom_remaining_qty",
+		"on_cancel": "greenwheels.greenwheels.custom.sales_order.update_so_custom_remaining_qty"
+	},
+	"Sales Invoice": {
+		"on_submit": "greenwheels.greenwheels.custom.sales_order.update_so_custom_remaining_qty_from_invoice",
+		"on_cancel": "greenwheels.greenwheels.custom.sales_order.update_so_custom_remaining_qty_from_invoice"
 	}
 }
 
