@@ -547,6 +547,119 @@ class MasterData(Document):
 			return dn_doc.name
 
 
+@frappe.whitelist()
+def make_delivery_note_from_sales_order(source_name, target_doc=None, kwargs=None):
+	"""
+	Custom method to map Sales Order items to Master Data items.
+	Similar to erpnext.selling.doctype.sales_order.sales_order.make_delivery_note
+	but adapted for Master Data which doesn't have packed_items.
+	"""
+	from frappe.model.mapper import get_mapped_doc
+	from erpnext.stock.get_item_details import get_item_defaults, get_item_group_defaults
+	from frappe.utils import flt, cint, cstr
+
+	if not kwargs:
+		kwargs = {}
+	kwargs = frappe._dict(kwargs)
+
+	# Check if Sales Order exists and is submitted
+	so = frappe.get_doc("Sales Order", source_name)
+	if so.docstatus != 1:
+		frappe.throw(_("Sales Order must be submitted"))
+
+	has_unit_price_items = so.has_unit_price_items
+
+	def is_unit_price_row(source):
+		return has_unit_price_items and source.qty == 0
+
+	def select_item(d):
+		filtered_items = kwargs.get("filtered_children", [])
+		child_filter = d.name in filtered_items if filtered_items else True
+		return child_filter
+
+	def condition(doc):
+		# Only include items that haven't been fully delivered
+		return (
+			(abs(doc.delivered_qty) < abs(doc.qty)) or is_unit_price_row(doc)
+		) and doc.delivered_by_supplier != 1
+
+	def update_item(source, target, source_parent):
+		# Calculate remaining qty
+		remaining_qty = (
+			flt(source.qty) if is_unit_price_row(source) else flt(source.qty) - flt(source.delivered_qty)
+		)
+		target.qty = remaining_qty
+		
+		# Calculate stock_qty (qty * conversion_factor)
+		target.stock_qty = remaining_qty * flt(source.conversion_factor)
+		
+		# Calculate amounts
+		target.base_amount = remaining_qty * flt(source.base_rate)
+		target.amount = remaining_qty * flt(source.rate)
+		target.base_rate = flt(source.base_rate)
+		target.rate = flt(source.rate)
+		
+		# Calculate net amounts (after discount)
+		target.net_amount = target.amount - flt(target.discount_amount or 0)
+		target.base_net_amount = target.base_amount - flt(target.discount_amount or 0)
+
+		# Set cost center from project or item defaults
+		item = get_item_defaults(target.item_code, source_parent.company)
+		item_group = get_item_group_defaults(target.item_code, source_parent.company)
+
+		if item:
+			target.cost_center = (
+				frappe.db.get_value("Project", source_parent.project, "cost_center")
+				or item.get("selling_cost_center")
+				or item_group.get("selling_cost_center")
+			)
+
+		# Set Sales Order references (these are already set by field_map, but ensure they're set)
+		target.against_sales_order = source_parent.name
+		target.so_detail = source.name
+
+	# Mapper: Only map Sales Order Items, NOT taxes or other child tables
+	mapper = {
+		"Sales Order": {
+			"doctype": "Master Data",
+			# No field_map needed - we're just updating the existing Master Data doc
+		},
+		"Sales Order Item": {
+			"doctype": "Delivery Note Item",
+			"field_map": {
+				"rate": "rate",
+				"name": "so_detail",
+				"parent": "against_sales_order",
+			},
+			"condition": lambda d: condition(d) and select_item(d),
+			"postprocess": update_item,
+		},
+		# Explicitly ignore taxes - get_mapped_doc auto-copies child tables with same fieldname/doctype
+		"Sales Taxes and Charges": {
+			"doctype": "Sales Taxes and Charges",
+			"ignore": True,  # Prevent copying taxes from Sales Order
+		},
+		# Explicitly ignore Sales Team as well
+		"Sales Team": {
+			"doctype": "Sales Team",
+			"ignore": True,  # Prevent copying sales team from Sales Order
+		},
+	}
+
+	target_doc = get_mapped_doc("Sales Order", so.name, mapper, target_doc)
+
+	# Set basic fields on target document
+	if target_doc:
+		if not target_doc.customer:
+			target_doc.customer = so.customer
+		if not target_doc.company:
+			target_doc.company = so.company
+		if not target_doc.project:
+			target_doc.project = so.project
+
+	return target_doc
+
+
 # Hook functions for doc_events
 # Note: These hooks are called in addition to the Document class methods
 # The Document class methods (validate, before_save, etc.) are called automatically by Frappe

@@ -431,6 +431,50 @@ frappe.ui.form.on("Master Data", {
 				}, 100);
 			}
 		}
+
+		// Add "Get Items From Sales Order" button in Delivery Note tab
+		if (
+			frm.doc.docstatus === 0 &&
+			frm.has_perm("write") &&
+			frappe.model.can_read("Sales Order")
+		) {
+			frm.add_custom_button(
+				__("Sales Order"),
+				function () {
+					if (!frm.doc.customer) {
+						frappe.throw({
+							title: __("Mandatory"),
+							message: __("Please Select a Customer"),
+						});
+					}
+					if (!frm.doc.project) {
+						frappe.throw({
+							title: __("Mandatory"),
+							message: __("Please Select a Project"),
+						});
+					}
+					erpnext.utils.map_current_doc({
+						method: "greenwheels.greenwheels.doctype.master_data.master_data.make_delivery_note_from_sales_order",
+						source_doctype: "Sales Order",
+						target: frm,
+						setters: {
+							customer: frm.doc.customer,
+						},
+						get_query_filters: {
+							docstatus: 1,
+							status: ["not in", ["Closed", "On Hold"]],
+							per_delivered: ["<", 99.99],
+							company: frm.doc.company,
+							project: frm.doc.project || undefined,
+						},
+						allow_child_item_selection: true,
+						child_fieldname: "items",
+						child_columns: ["item_code", "item_name", "qty", "delivered_qty"],
+					});
+				},
+				__("Get Items From")
+			);
+		}
 	},
 
 	render_connections: function (frm) {
