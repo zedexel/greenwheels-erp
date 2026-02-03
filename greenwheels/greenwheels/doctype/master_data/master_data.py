@@ -230,6 +230,10 @@ class MasterData(Document):
 			taxes=self.taxi_taxes,
 			grand_total=self.taxi_grand_total,
 			field_name="taxi_po_name",
+			invoice=getattr(self, 'taxi_invoice', None),
+			invoice_date=getattr(self, 'taxi_invoice_date', None),
+			reference=None,
+			attachment=getattr(self, 'taxi_attachement', None),
 		)
 
 		# Create/update Crusher Purchase Order only if crusher_included is False (separate crusher supplier)
@@ -241,6 +245,10 @@ class MasterData(Document):
 				taxes=self.crusher_taxes,
 				grand_total=self.crusher_grand_total,
 				field_name="crusher_po_name",
+				invoice=None,
+				invoice_date=None,
+				reference=getattr(self, 'crusher_reference', None),
+				attachment=getattr(self, 'crusher_attachement', None),
 			)
 		else:
 			# Cancel and clear crusher PO if crusher_included is True (crusher is included with taxi)
@@ -401,7 +409,7 @@ class MasterData(Document):
 		# Amendments are now handled in before_save, but keep this for any additional logic needed
 		pass
 
-	def create_or_update_purchase_order(self, supplier, transaction_date, items, taxes, grand_total, field_name):
+	def create_or_update_purchase_order(self, supplier, transaction_date, items, taxes, grand_total, field_name, invoice=None, invoice_date=None, reference=None, attachment=None):
 		"""Create or update Purchase Order document"""
 		po_name = self.get(field_name)
 
@@ -431,6 +439,16 @@ class MasterData(Document):
 				po_doc.conversion_rate = 1.0
 				po_doc.disable_rounded_total = 1
 				po_doc.project = self.project
+				
+				# Map new fields from Master Data -> custom fields on Purchase Order
+				if invoice is not None:
+					po_doc.custom_supplier_invoice = invoice
+				if invoice_date is not None:
+					po_doc.custom_supplier_invoice_date = invoice_date
+				if reference is not None:
+					po_doc.custom_supplier_reference = reference
+				if attachment is not None:
+					po_doc.custom_supplier_attachment = attachment
 
 				# Clear existing items and taxes
 				po_doc.items = []
@@ -471,6 +489,16 @@ class MasterData(Document):
 			po_doc.conversion_rate = 1.0
 			po_doc.disable_rounded_total = 1
 			po_doc.project = self.project
+			
+			# Map new fields from Master Data -> custom fields on Purchase Order
+			if invoice is not None:
+				po_doc.custom_supplier_invoice = invoice
+			if invoice_date is not None:
+				po_doc.custom_supplier_invoice_date = invoice_date
+			if reference is not None:
+				po_doc.custom_supplier_reference = reference
+			if attachment is not None:
+				po_doc.custom_supplier_attachment = attachment
 
 			# Add items
 			for item in items:
@@ -531,6 +559,14 @@ class MasterData(Document):
 				dn_doc.ignore_pricing_rule = 1  # Ignore price list, user enters rates manually
 				dn_doc.disable_rounded_total = 1
 				dn_doc.project = self.project
+				
+				# Map new fields from Master Data -> custom fields on Delivery Note
+				if hasattr(self, 'do_number') and self.do_number:
+					dn_doc.custom_do_number = self.do_number
+				if hasattr(self, 'vehicle_number') and self.vehicle_number:
+					dn_doc.vehicle_no = self.vehicle_number
+				if hasattr(self, 'do_attachement') and self.do_attachement:
+					dn_doc.custom_do_attachment = self.do_attachement
 
 				# Clear existing items and taxes
 				dn_doc.items = []
@@ -588,6 +624,14 @@ class MasterData(Document):
 			dn_doc.ignore_pricing_rule = 1  # Ignore price list, user enters rates manually
 			dn_doc.disable_rounded_total = 1
 			dn_doc.project = self.project
+			
+			# Map new fields from Master Data -> custom fields on Delivery Note
+			if hasattr(self, 'do_number') and self.do_number:
+				dn_doc.custom_do_number = self.do_number
+			if hasattr(self, 'vehicle_number') and self.vehicle_number:
+				dn_doc.vehicle_no = self.vehicle_number
+			if hasattr(self, 'do_attachement') and self.do_attachement:
+				dn_doc.custom_do_attachment = self.do_attachement
 
 			# Add items
 			for item in self.items:
