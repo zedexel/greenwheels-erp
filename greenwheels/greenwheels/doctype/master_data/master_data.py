@@ -35,10 +35,21 @@ class MasterData(Document):
 			if self.disable_rounded_total != 1:
 				self.disable_rounded_total = 1
 
-		# Validate required fields
+		# Always-required fields (even for drafts)
 		if not self.company:
 			frappe.throw(_("Company is mandatory"))
 
+		# Project must always be set so naming/links are consistent
+		if not self.project:
+			frappe.throw(_("Project is mandatory"))
+
+		# Extra mandatory checks only when submitting
+		if getattr(self, "_action", None) == "submit":
+			self.validate_for_submit()
+
+	def validate_for_submit(self):
+		"""Validation that should run only when submitting Master Data."""
+		# Taxi / delivery note header
 		if not self.taxi:
 			frappe.throw(_("Taxi Supplier is mandatory"))
 
@@ -51,7 +62,7 @@ class MasterData(Document):
 		if not self.date:
 			frappe.throw(_("Delivery Note Date is mandatory"))
 
-		# Validate items exist
+		# Validate Taxi PO items exist
 		if not self.taxi_items or len(self.taxi_items) == 0:
 			frappe.throw(_("Please add at least one item in Taxi PO"))
 
@@ -64,6 +75,7 @@ class MasterData(Document):
 			if not self.crusher_items or len(self.crusher_items) == 0:
 				frappe.throw(_("Please add at least one item in Crusher PO when Crusher Included is not checked"))
 
+		# Validate Delivery Note items exist
 		if not self.items or len(self.items) == 0:
 			frappe.throw(_("Please add at least one item in Delivery Note"))
 
@@ -206,7 +218,16 @@ class MasterData(Document):
 					self.do_grand_total += tax_amount
 
 	def before_save(self):
-		"""Create or update Purchase Orders and Delivery Note before saving"""
+		"""Hook before every save.
+
+		No linked Purchase Orders or Delivery Note are created while the
+		document is in draft. Linked documents are created/updated in
+		before_submit instead.
+		"""
+		pass
+
+	def before_submit(self):
+		"""Before submitting Master Data, create or update linked POs and Delivery Note."""
 		# Note: Amendment handling is done in validate() to prevent link validation errors
 		# Convert item_wise_tax_detail from dict to JSON string for all tax tables
 		# This is required because Frappe stores this field as JSON in the database
@@ -230,10 +251,10 @@ class MasterData(Document):
 			taxes=self.taxi_taxes,
 			grand_total=self.taxi_grand_total,
 			field_name="taxi_po_name",
-			invoice=getattr(self, 'taxi_invoice', None),
-			invoice_date=getattr(self, 'taxi_invoice_date', None),
+			invoice=getattr(self, "taxi_invoice", None),
+			invoice_date=getattr(self, "taxi_invoice_date", None),
 			reference=None,
-			attachment=getattr(self, 'taxi_attachement', None),
+			attachment=getattr(self, "taxi_attachement", None),
 		)
 
 		# Create/update Crusher Purchase Order only if crusher_included is False (separate crusher supplier)
@@ -247,8 +268,8 @@ class MasterData(Document):
 				field_name="crusher_po_name",
 				invoice=None,
 				invoice_date=None,
-				reference=getattr(self, 'crusher_reference', None),
-				attachment=getattr(self, 'crusher_attachement', None),
+				reference=getattr(self, "crusher_reference", None),
+				attachment=getattr(self, "crusher_attachement", None),
 			)
 		else:
 			# Cancel and clear crusher PO if crusher_included is True (crusher is included with taxi)
