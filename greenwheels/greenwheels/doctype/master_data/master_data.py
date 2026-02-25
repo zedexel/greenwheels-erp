@@ -222,9 +222,16 @@ class MasterData(Document):
 
 		No linked Purchase Orders or Delivery Note are created while the
 		document is in draft. Linked documents are created/updated in
-		before_submit instead.
+		before_submit instead. We still normalise tax tables here so that
+		child rows can be saved without DB errors.
 		"""
-		pass
+		# Convert item_wise_tax_detail from dict to JSON string for all tax tables.
+		# This is required because Frappe stores this field as JSON in the database.
+		for tax_table in [self.taxi_taxes, self.crusher_taxes, self.taxes]:
+			if tax_table:
+				for tax in tax_table:
+					if tax.get("item_wise_tax_detail") and isinstance(tax.item_wise_tax_detail, dict):
+						tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail, separators=(",", ":"))
 
 	def before_submit(self):
 		"""Before submitting Master Data, create or update linked POs and Delivery Note."""
