@@ -262,6 +262,7 @@ class MasterData(Document):
 			invoice_date=getattr(self, "taxi_invoice_date", None),
 			reference=None,
 			attachment=getattr(self, "taxi_attachement", None),
+			po_type="Taxi",
 		)
 
 		# Create/update Crusher Purchase Order only if crusher_included is False (separate crusher supplier)
@@ -277,6 +278,8 @@ class MasterData(Document):
 				invoice_date=None,
 				reference=getattr(self, "crusher_reference", None),
 				attachment=getattr(self, "crusher_attachement", None),
+				po_type="Crusher",
+				custom_payment=getattr(self, "custom_payment", None),
 			)
 		else:
 			# Cancel and clear crusher PO if crusher_included is True (crusher is included with taxi)
@@ -437,8 +440,27 @@ class MasterData(Document):
 		# Amendments are now handled in before_save, but keep this for any additional logic needed
 		pass
 
-	def create_or_update_purchase_order(self, supplier, transaction_date, items, taxes, grand_total, field_name, invoice=None, invoice_date=None, reference=None, attachment=None):
-		"""Create or update Purchase Order document"""
+	def create_or_update_purchase_order(
+		self,
+		supplier,
+		transaction_date,
+		items,
+		taxes,
+		grand_total,
+		field_name,
+		invoice=None,
+		invoice_date=None,
+		reference=None,
+		attachment=None,
+		po_type=None,
+		custom_payment=None,
+	):
+		"""Create or update Purchase Order document.
+
+		po_type is an optional flag used to set custom_purchase_order_type
+		on the Purchase Order (e.g. \"Taxi\" or \"Crusher\").
+		custom_payment is passed from Master Data (e.g. crusher tab) to Purchase Order.
+		"""
 		po_name = self.get(field_name)
 
 		if po_name:
@@ -477,6 +499,13 @@ class MasterData(Document):
 					po_doc.custom_supplier_reference = reference
 				if attachment is not None:
 					po_doc.custom_supplier_attachment = attachment
+
+				# Distinguish between Taxi / Crusher purchase orders if requested
+				if po_type is not None:
+					po_doc.custom_purchase_order_type = po_type
+
+				if custom_payment is not None:
+					po_doc.custom_payment = custom_payment
 
 				# Clear existing items and taxes
 				po_doc.items = []
@@ -527,6 +556,13 @@ class MasterData(Document):
 				po_doc.custom_supplier_reference = reference
 			if attachment is not None:
 				po_doc.custom_supplier_attachment = attachment
+
+			# Distinguish between Taxi / Crusher purchase orders if requested
+			if po_type is not None:
+				po_doc.custom_purchase_order_type = po_type
+
+			if custom_payment is not None:
+				po_doc.custom_payment = custom_payment
 
 			# Add items
 			for item in items:
