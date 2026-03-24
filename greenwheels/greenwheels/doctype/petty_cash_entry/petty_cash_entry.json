@@ -1,0 +1,231 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-03-24 10:15:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "posting_date",
+  "posting_time",
+  "petty_cash_account",
+  "entry_type",
+  "amount",
+  "column_break_1",
+  "reference_no",
+  "reference_date",
+  "paid_by",
+  "company",
+  "remarks",
+  "section_break_debit",
+  "account_head",
+  "material",
+  "vendor_company_name",
+  "description",
+  "column_break_debit_1",
+  "basic_amount",
+  "vat_amount",
+  "grand_total",
+  "section_break_balances",
+  "balance_before",
+  "balance_after"
+ ],
+ "fields": [
+  {
+   "default": "PCE-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "PCE-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Posting Time"
+  },
+  {
+   "fieldname": "petty_cash_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Petty Cash Account",
+   "options": "Petty Cash Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "entry_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Entry Type",
+   "options": "Topup\nDebit",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reference_no",
+   "fieldtype": "Data",
+   "label": "Reference No"
+  },
+  {
+   "fieldname": "reference_date",
+   "fieldtype": "Date",
+   "label": "Reference Date"
+  },
+  {
+   "fieldname": "paid_by",
+   "fieldtype": "Data",
+   "label": "Paid By"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "section_break_debit",
+   "fieldtype": "Section Break",
+   "label": "Debit Details"
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "account_head",
+   "fieldtype": "Link",
+   "label": "Account Head",
+   "mandatory_depends_on": "eval:doc.entry_type==\"Debit\"",
+   "options": "Petty Cash Account Head"
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "material",
+   "fieldtype": "Link",
+   "label": "Material",
+   "options": "Item"
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "vendor_company_name",
+   "fieldtype": "Link",
+   "label": "Crusher/Company Name",
+   "options": "Supplier"
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "column_break_debit_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "basic_amount",
+   "fieldtype": "Currency",
+   "label": "Basic Amount"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "vat_amount",
+   "fieldtype": "Currency",
+   "label": "VAT Amount"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total"
+  },
+  {
+   "fieldname": "section_break_balances",
+   "fieldtype": "Section Break",
+   "label": "Balance Snapshot"
+  },
+  {
+   "default": "0",
+   "fieldname": "balance_before",
+   "fieldtype": "Currency",
+   "label": "Balance Before",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "balance_after",
+   "fieldtype": "Currency",
+   "label": "Balance After",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-03-24 10:15:00.000000",
+ "modified_by": "Administrator",
+ "module": "greenwheels",
+ "name": "Petty Cash Entry",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "cancel": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "cancel": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "petty_cash_account"
+}
