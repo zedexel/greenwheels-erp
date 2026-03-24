@@ -15,11 +15,11 @@
   "column_break_1",
   "reference_no",
   "reference_date",
-  "paid_by",
   "company",
   "remarks",
   "section_break_debit",
   "account_head",
+  "invoice_voucher",
   "material",
   "vendor_company_name",
   "description",
@@ -92,11 +92,6 @@
    "label": "Reference Date"
   },
   {
-   "fieldname": "paid_by",
-   "fieldtype": "Data",
-   "label": "Paid By"
-  },
-  {
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -120,6 +115,12 @@
    "label": "Account Head",
    "mandatory_depends_on": "eval:doc.entry_type==\"Debit\"",
    "options": "Petty Cash Account Head"
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Debit\"",
+   "fieldname": "invoice_voucher",
+   "fieldtype": "Data",
+   "label": "Invoice/Voucher No"
   },
   {
    "depends_on": "eval:doc.entry_type==\"Debit\"",

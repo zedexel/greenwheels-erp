@@ -13,7 +13,7 @@ def get_columns():
 	return [
 		{"label": "SI No", "fieldname": "si_no", "fieldtype": "Int", "width": 70},
 		{"label": "Date", "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
-		{"label": "INV/CH NO", "fieldname": "reference_no", "fieldtype": "Data", "width": 120},
+		{"label": "Invoice/Voucher", "fieldname": "invoice_voucher", "fieldtype": "Data", "width": 140},
 		{
 			"label": "Account Head",
 			"fieldname": "account_head",
@@ -35,7 +35,13 @@ def get_columns():
 		{"label": "Amount", "fieldname": "amount", "fieldtype": "Currency", "width": 110},
 		{"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency", "width": 120},
 		{"label": "Balance", "fieldname": "running_balance", "fieldtype": "Currency", "width": 120},
-		{"label": "Paid By", "fieldname": "paid_by", "fieldtype": "Data", "width": 120},
+		{
+			"label": "Paid By",
+			"fieldname": "paid_by_account",
+			"fieldtype": "Link",
+			"options": "Petty Cash Account",
+			"width": 140,
+		},
 		{"label": "Company", "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
 	]
 
@@ -69,7 +75,7 @@ def get_data(filters):
 		select
 			pce.name,
 			pce.posting_date,
-			pce.reference_no,
+			pce.invoice_voucher,
 			pce.account_head,
 			pce.material,
 			pce.vendor_company_name,
@@ -79,7 +85,6 @@ def get_data(filters):
 			pce.basic_amount,
 			pce.vat_amount,
 			pce.grand_total,
-			pce.paid_by,
 			pce.company,
 			pce.petty_cash_account
 		from `tabPetty Cash Entry` pce
@@ -125,7 +130,7 @@ def get_data(filters):
 			{
 				"si_no": idx,
 				"posting_date": row.posting_date,
-				"reference_no": row.reference_no,
+				"invoice_voucher": row.invoice_voucher,
 				"account_head": row.account_head,
 				"material": row.material,
 				"vendor_company_name": row.vendor_company_name,
@@ -136,7 +141,7 @@ def get_data(filters):
 				"amount": debit_amount if row.entry_type == "Debit" else flt(row.amount),
 				"grand_total": flt(row.grand_total) if row.entry_type == "Debit" else flt(row.amount),
 				"running_balance": running,
-				"paid_by": row.paid_by,
+				"paid_by_account": row.petty_cash_account,
 				"company": row.company,
 			}
 		)
