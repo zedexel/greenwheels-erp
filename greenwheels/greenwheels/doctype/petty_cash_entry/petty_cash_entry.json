@@ -11,6 +11,7 @@
   "posting_time",
   "petty_cash_account",
   "entry_type",
+  "to_petty_cash_account",
   "amount",
   "column_break_1",
   "reference_no",
@@ -66,8 +67,16 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Entry Type",
-   "options": "Topup\nDebit",
+   "options": "Topup\nDebit\nAccount to Account",
    "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.entry_type==\"Account to Account\"",
+   "fieldname": "to_petty_cash_account",
+   "fieldtype": "Link",
+   "label": "Transfer To Account",
+   "mandatory_depends_on": "eval:doc.entry_type==\"Account to Account\"",
+   "options": "Petty Cash Account"
   },
   {
    "default": "0",
@@ -190,7 +199,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-03-24 10:15:00.000000",
+ "modified": "2026-05-07 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "greenwheels",
  "name": "Petty Cash Entry",

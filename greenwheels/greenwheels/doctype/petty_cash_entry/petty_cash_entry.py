@@ -41,17 +41,45 @@ class PettyCashEntry(Document):
 
 			if round(self.grand_total, 2) != round(self.amount, 2):
 				frappe.throw(_("Grand Total must match Amount for Debit entries."))
-		else:
-			# Topup should not carry debit line math.
+
+		elif self.entry_type == "Account to Account":
+			if not self.to_petty_cash_account:
+				frappe.throw(_("Transfer To Account is mandatory for Account to Account transfers."))
+			if self.to_petty_cash_account == self.petty_cash_account:
+				frappe.throw(_("Source and destination accounts cannot be the same."))
+
+			dest_doc = frappe.get_doc("Petty Cash Account", self.to_petty_cash_account)
+			if not dest_doc.is_active:
+				frappe.throw(
+					_("Destination account {0} is inactive.").format(frappe.bold(dest_doc.name))
+				)
+
+			self.account_head = None
 			self.basic_amount = 0
 			self.vat_amount = 0
 			self.grand_total = 0
 
-		if self.docstatus == 0 and self.entry_type == "Debit":
+		else:
+			# Topup — clear debit-specific fields.
+			self.account_head = None
+			self.to_petty_cash_account = None
+			self.basic_amount = 0
+			self.vat_amount = 0
+			self.grand_total = 0
+
+		if self.docstatus == 0 and self.entry_type in ("Debit", "Account to Account"):
 			self._validate_available_balance(account_doc)
 
 	def before_submit(self):
 		account_doc = self._get_account_doc(for_update=True)
+
+		if self.entry_type == "Account to Account":
+			# Lock destination account to prevent concurrent balance updates.
+			frappe.db.sql(
+				"""select name from `tabPetty Cash Account` where name = %s for update""",
+				(self.to_petty_cash_account,),
+			)
+
 		self._set_balance_snapshots(account_doc)
 		self._validate_available_balance(account_doc)
 		self._apply_balance_update(account_doc)
@@ -63,7 +91,27 @@ class PettyCashEntry(Document):
 
 		if self.entry_type == "Topup":
 			account_doc.current_balance = current_balance - amount
+
+		elif self.entry_type == "Account to Account":
+			# Reverse: restore source, deduct from destination.
+			frappe.db.sql(
+				"""select name from `tabPetty Cash Account` where name = %s for update""",
+				(self.to_petty_cash_account,),
+			)
+			dest_doc = frappe.get_doc("Petty Cash Account", self.to_petty_cash_account)
+			new_dest_balance = flt(dest_doc.current_balance) - amount
+			if not dest_doc.allow_negative_balance and new_dest_balance < 0:
+				frappe.throw(
+					_(
+						"Cannot cancel: reversing this transfer would make destination account {0} negative."
+					).format(frappe.bold(dest_doc.name))
+				)
+			dest_doc.current_balance = new_dest_balance
+			dest_doc.save(ignore_permissions=True)
+			account_doc.current_balance = current_balance + amount
+
 		else:
+			# Debit reversal — restore balance.
 			account_doc.current_balance = current_balance + amount
 
 		if not account_doc.allow_negative_balance and flt(account_doc.current_balance) < 0:
@@ -90,10 +138,13 @@ class PettyCashEntry(Document):
 		if self.entry_type == "Topup":
 			self.balance_after = current_balance + flt(self.amount)
 		else:
+			# Debit and Account to Account both reduce the source balance.
 			self.balance_after = current_balance - flt(self.amount)
 
 	def _validate_available_balance(self, account_doc):
-		if self.entry_type != "Debit" or account_doc.allow_negative_balance:
+		if self.entry_type not in ("Debit", "Account to Account"):
+			return
+		if account_doc.allow_negative_balance:
 			return
 
 		projected_balance = flt(account_doc.current_balance) - flt(self.amount)
@@ -110,9 +161,14 @@ class PettyCashEntry(Document):
 		account_doc.current_balance = flt(self.balance_after)
 		account_doc.save(ignore_permissions=True)
 
+		if self.entry_type == "Account to Account":
+			dest_doc = frappe.get_doc("Petty Cash Account", self.to_petty_cash_account)
+			dest_doc.current_balance = flt(dest_doc.current_balance) + flt(self.amount)
+			dest_doc.save(ignore_permissions=True)
+
 
 @frappe.whitelist()
-def get_live_balance_preview(petty_cash_account, entry_type, amount=0):
+def get_live_balance_preview(petty_cash_account, entry_type, amount=0, to_petty_cash_account=None):
 	"""Return real-time balance preview for draft form updates."""
 	if not petty_cash_account:
 		return {
@@ -132,19 +188,27 @@ def get_live_balance_preview(petty_cash_account, entry_type, amount=0):
 	if entry_type == "Topup":
 		projected_balance = current_balance + amount
 	else:
+		# Debit and Account to Account both reduce the source.
 		projected_balance = current_balance - amount
 
 	can_submit = 1
 	message = ""
-	if entry_type == "Debit" and not account.allow_negative_balance and projected_balance < 0:
+	if entry_type in ("Debit", "Account to Account") and not account.allow_negative_balance and projected_balance < 0:
 		can_submit = 0
 		message = _(
 			"Insufficient balance. Available: {0}, Required: {1}"
 		).format(current_balance, amount)
 
-	return {
+	result = {
 		"balance_before": current_balance,
 		"balance_after": projected_balance,
 		"can_submit": can_submit,
 		"message": message,
 	}
+
+	if entry_type == "Account to Account" and to_petty_cash_account:
+		dest = frappe.get_doc("Petty Cash Account", to_petty_cash_account)
+		result["dest_balance_before"] = flt(dest.current_balance)
+		result["dest_balance_after"] = flt(dest.current_balance) + amount
+
+	return result
