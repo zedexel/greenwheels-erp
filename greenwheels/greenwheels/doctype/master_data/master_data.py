@@ -79,6 +79,36 @@ class MasterData(Document):
 		if not self.items or len(self.items) == 0:
 			frappe.throw(_("Please add at least one item in Delivery Note"))
 
+		# Validate Petty Cash fields when Crusher payment is Cash.
+		if not self.crusher_included and getattr(self, "custom_payment", None) == "Cash":
+			if not getattr(self, "crusher_petty_cash_account", None):
+				frappe.throw(_("Petty Cash Account is mandatory when Crusher Payment type is Cash."))
+			if not getattr(self, "crusher_petty_cash_account_head", None):
+				frappe.throw(_("Petty Cash Account Head is mandatory when Crusher Payment type is Cash."))
+
+		# Validate petty cash fields on each Taxi Tax row that is marked for cash payment.
+		for tax_row in (self.taxi_taxes or []):
+			if not tax_row.get("custom_is_petty_cash"):
+				continue
+			if not tax_row.get("custom_petty_cash_account"):
+				frappe.throw(
+					_("Taxi Tax row {0}: Petty Cash Account is mandatory when 'Pay via Petty Cash' is checked.").format(
+						tax_row.idx
+					)
+				)
+			if not tax_row.get("custom_petty_cash_account_head"):
+				frappe.throw(
+					_("Taxi Tax row {0}: Petty Cash Account Head is mandatory when 'Pay via Petty Cash' is checked.").format(
+						tax_row.idx
+					)
+				)
+			if flt(tax_row.get("tax_amount", 0)) <= 0:
+				frappe.throw(
+					_("Taxi Tax row {0}: Tax Amount must be greater than zero for Petty Cash payment.").format(
+						tax_row.idx
+					)
+				)
+
 	def calculate_taxi_po_totals(self):
 		"""Calculate taxes and totals for Taxi PO section"""
 		if not self.taxi_items or len(self.taxi_items) == 0:
@@ -316,8 +346,35 @@ class MasterData(Document):
 			if dn_doc.docstatus == 0:
 				dn_doc.submit()
 
+		# Create and submit Petty Cash Entry for Crusher cash payment.
+		if not self.crusher_included and getattr(self, "custom_payment", None) == "Cash":
+			self._create_crusher_petty_cash_entry()
+
+		# Create and submit Petty Cash Entries for Taxi tax rows marked as cash payment.
+		self._create_taxi_tax_petty_cash_entries()
+
 	def on_cancel(self):
 		"""Cancel linked Purchase Orders and Delivery Note"""
+		# Cancel Petty Cash Entries created from Taxi tax rows.
+		for tax_row in (self.taxi_taxes or []):
+			pce_name = tax_row.get("custom_petty_cash_entry")
+			if pce_name:
+				try:
+					pce_doc = frappe.get_doc("Petty Cash Entry", pce_name)
+					if pce_doc.docstatus == 1:
+						pce_doc.cancel()
+				except frappe.DoesNotExistError:
+					pass
+
+		# Cancel Crusher Petty Cash Entry first (before cancelling the PO).
+		if getattr(self, "crusher_petty_cash_entry", None):
+			try:
+				pce_doc = frappe.get_doc("Petty Cash Entry", self.crusher_petty_cash_entry)
+				if pce_doc.docstatus == 1:
+					pce_doc.cancel()
+			except frappe.DoesNotExistError:
+				pass
+
 		# Cancel Taxi Purchase Order
 		if self.taxi_po_name:
 			try:
@@ -439,6 +496,98 @@ class MasterData(Document):
 		"""Handle amendments after submit - this is called when updating an already submitted document"""
 		# Amendments are now handled in before_save, but keep this for any additional logic needed
 		pass
+
+	def _create_crusher_petty_cash_entry(self):
+		"""Create and submit a Petty Cash Debit entry for a Crusher cash payment."""
+		amount = flt(self.crusher_grand_total)
+		if amount <= 0:
+			frappe.throw(
+				_("Crusher Grand Total must be greater than zero to create a Petty Cash Entry.")
+			)
+
+		pce = frappe.new_doc("Petty Cash Entry")
+		pce.posting_date = self.crusher_date or frappe.utils.today()
+		pce.petty_cash_account = self.crusher_petty_cash_account
+		pce.entry_type = "Debit"
+		pce.amount = amount
+		pce.account_head = self.crusher_petty_cash_account_head
+		# grand_total == amount; basic_amount will auto-set in PCE validate (vat_amount == 0).
+		pce.grand_total = amount
+		pce.basic_amount = amount
+		pce.vat_amount = 0
+		pce.company = self.company
+		pce.invoice_voucher = getattr(self, "crusher_reference", "") or ""
+		pce.vendor_company_name = self.crusher
+		pce.description = _("Crusher payment for Master Data {0}").format(self.name)
+		pce.remarks = _("Auto-created from Master Data {0} on submit.").format(self.name)
+
+		pce.insert(ignore_permissions=True)
+		pce.submit()
+
+		self.db_set("crusher_petty_cash_entry", pce.name, notify=True)
+		frappe.msgprint(
+			_("Petty Cash Entry {0} created — {1} deducted from {2}.").format(
+				frappe.utils.get_link_to_form("Petty Cash Entry", pce.name),
+				frappe.format(amount, {"fieldtype": "Currency"}),
+				frappe.bold(self.crusher_petty_cash_account),
+			),
+			alert=True,
+			indicator="green",
+		)
+
+	def _create_taxi_tax_petty_cash_entries(self):
+		"""Create and submit a Petty Cash Debit entry for each Taxi tax row marked as cash payment."""
+		for tax_row in (self.taxi_taxes or []):
+			if not tax_row.get("custom_is_petty_cash"):
+				continue
+
+			amount = flt(tax_row.tax_amount)
+			# Guard — validation already ran but protect against edge cases.
+			if amount <= 0:
+				continue
+
+			pce = frappe.new_doc("Petty Cash Entry")
+			pce.posting_date = self.taxi_date or frappe.utils.today()
+			pce.petty_cash_account = tax_row.custom_petty_cash_account
+			pce.entry_type = "Debit"
+			pce.amount = amount
+			pce.account_head = tax_row.custom_petty_cash_account_head
+			# grand_total == amount; basic_amount auto-sets in PCE validate (vat_amount == 0).
+			pce.grand_total = amount
+			pce.basic_amount = amount
+			pce.vat_amount = 0
+			pce.company = self.company
+			pce.invoice_voucher = getattr(self, "taxi_invoice", "") or ""
+			pce.vendor_company_name = self.taxi
+			pce.description = _("{0} — Taxi tax for Master Data {1}").format(
+				tax_row.description or tax_row.account_head or _("Tax"),
+				self.name,
+			)
+			pce.remarks = _("Auto-created from Master Data {0}, Taxi Tax row {1}.").format(
+				self.name, tax_row.idx
+			)
+
+			pce.insert(ignore_permissions=True)
+			pce.submit()
+
+			# Store the PCE name on the tax row for tracking and cancellation.
+			frappe.db.set_value(
+				"Purchase Taxes and Charges",
+				tax_row.name,
+				"custom_petty_cash_entry",
+				pce.name,
+			)
+
+			frappe.msgprint(
+				_("Petty Cash Entry {0} created for Taxi Tax row {1} — {2} deducted from {3}.").format(
+					frappe.utils.get_link_to_form("Petty Cash Entry", pce.name),
+					tax_row.idx,
+					frappe.format(amount, {"fieldtype": "Currency"}),
+					frappe.bold(tax_row.custom_petty_cash_account),
+				),
+				alert=True,
+				indicator="green",
+			)
 
 	def create_or_update_purchase_order(
 		self,
