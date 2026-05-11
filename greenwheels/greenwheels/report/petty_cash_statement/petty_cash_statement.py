@@ -92,6 +92,7 @@ def get_data(filters):
 		select
 			pce.name,
 			pce.posting_date,
+			pce.creation,
 			pce.invoice_voucher,
 			pce.account_head,
 			pce.material,
@@ -114,6 +115,7 @@ def get_data(filters):
 		select
 			pce.name,
 			pce.posting_date,
+			pce.creation,
 			pce.invoice_voucher,
 			pce.account_head,
 			pce.material,

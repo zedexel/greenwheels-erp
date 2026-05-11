@@ -86,28 +86,25 @@ class MasterData(Document):
 			if not getattr(self, "crusher_petty_cash_account_head", None):
 				frappe.throw(_("Petty Cash Account Head is mandatory when Crusher Payment type is Cash."))
 
-		# Validate petty cash fields on each Taxi Tax row that is marked for cash payment.
-		for tax_row in (self.taxi_taxes or []):
-			if not tax_row.get("custom_is_petty_cash"):
-				continue
-			if not tax_row.get("custom_petty_cash_account"):
+		# Validate petty cash fields for Taxi Tax rows marked for cash payment.
+		# Petty Cash Account and Account Head are shared parent-level fields, not per-row.
+		taxi_petty_cash_rows = [t for t in (self.taxi_taxes or []) if t.get("custom_is_petty_cash")]
+		if taxi_petty_cash_rows:
+			if not getattr(self, "taxi_petty_cash_account", None):
 				frappe.throw(
-					_("Taxi Tax row {0}: Petty Cash Account is mandatory when 'Pay via Petty Cash' is checked.").format(
-						tax_row.idx
-					)
+					_("Petty Cash Account is mandatory when any Taxi Tax row has 'Pay via Petty Cash' checked.")
 				)
-			if not tax_row.get("custom_petty_cash_account_head"):
+			if not getattr(self, "taxi_petty_cash_account_head", None):
 				frappe.throw(
-					_("Taxi Tax row {0}: Petty Cash Account Head is mandatory when 'Pay via Petty Cash' is checked.").format(
-						tax_row.idx
-					)
+					_("Petty Cash Account Head is mandatory when any Taxi Tax row has 'Pay via Petty Cash' checked.")
 				)
-			if flt(tax_row.get("tax_amount", 0)) <= 0:
-				frappe.throw(
-					_("Taxi Tax row {0}: Tax Amount must be greater than zero for Petty Cash payment.").format(
-						tax_row.idx
+			for tax_row in taxi_petty_cash_rows:
+				if flt(tax_row.get("tax_amount", 0)) <= 0:
+					frappe.throw(
+						_("Taxi Tax row {0}: Tax Amount must be greater than zero for Petty Cash payment.").format(
+							tax_row.idx
+						)
 					)
-				)
 
 	def calculate_taxi_po_totals(self):
 		"""Calculate taxes and totals for Taxi PO section"""
@@ -518,7 +515,12 @@ class MasterData(Document):
 		pce.company = self.company
 		pce.invoice_voucher = getattr(self, "crusher_reference", "") or ""
 		pce.vendor_company_name = self.crusher
-		pce.description = _("Crusher payment for Master Data {0}").format(self.name)
+		item_names = ", ".join(
+			row.item_name or row.item_code or ""
+			for row in (self.crusher_items or [])
+			if row.item_name or row.item_code
+		)
+		pce.description = _("Cash paid for {0} to {1}").format(item_names or _("items"), self.crusher or "")
 		pce.remarks = _("Auto-created from Master Data {0} on submit.").format(self.name)
 
 		pce.insert(ignore_permissions=True)
@@ -536,7 +538,15 @@ class MasterData(Document):
 		)
 
 	def _create_taxi_tax_petty_cash_entries(self):
-		"""Create and submit a Petty Cash Debit entry for each Taxi tax row marked as cash payment."""
+		"""Create and submit a Petty Cash Debit entry for each Taxi tax row marked as cash payment.
+
+		Petty Cash Account and Account Head are taken from the parent-level fields
+		taxi_petty_cash_account and taxi_petty_cash_account_head, which are shared
+		across all petty cash rows in the taxi taxes table.
+		"""
+		petty_cash_account = getattr(self, "taxi_petty_cash_account", None)
+		petty_cash_account_head = getattr(self, "taxi_petty_cash_account_head", None)
+
 		for tax_row in (self.taxi_taxes or []):
 			if not tax_row.get("custom_is_petty_cash"):
 				continue
@@ -548,10 +558,10 @@ class MasterData(Document):
 
 			pce = frappe.new_doc("Petty Cash Entry")
 			pce.posting_date = self.taxi_date or frappe.utils.today()
-			pce.petty_cash_account = tax_row.custom_petty_cash_account
+			pce.petty_cash_account = petty_cash_account
 			pce.entry_type = "Debit"
 			pce.amount = amount
-			pce.account_head = tax_row.custom_petty_cash_account_head
+			pce.account_head = petty_cash_account_head
 			# grand_total == amount; basic_amount auto-sets in PCE validate (vat_amount == 0).
 			pce.grand_total = amount
 			pce.basic_amount = amount
@@ -559,9 +569,9 @@ class MasterData(Document):
 			pce.company = self.company
 			pce.invoice_voucher = getattr(self, "taxi_invoice", "") or ""
 			pce.vendor_company_name = self.taxi
-			pce.description = _("{0} — Taxi tax for Master Data {1}").format(
-				tax_row.description or tax_row.account_head or _("Tax"),
-				self.name,
+			pce.description = _("{0} Paid at {1}").format(
+				tax_row.account_head or tax_row.description or _("Tax"),
+				self.crusher or "",
 			)
 			pce.remarks = _("Auto-created from Master Data {0}, Taxi Tax row {1}.").format(
 				self.name, tax_row.idx
@@ -583,7 +593,7 @@ class MasterData(Document):
 					frappe.utils.get_link_to_form("Petty Cash Entry", pce.name),
 					tax_row.idx,
 					frappe.format(amount, {"fieldtype": "Currency"}),
-					frappe.bold(tax_row.custom_petty_cash_account),
+					frappe.bold(petty_cash_account),
 				),
 				alert=True,
 				indicator="green",
