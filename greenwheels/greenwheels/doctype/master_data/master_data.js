@@ -516,9 +516,28 @@ frappe.ui.form.on("Master Data", {
 			method: "greenwheels.greenwheels.doctype.master_data.master_data.make_delivery_note_from_sales_order",
 			source_doctype: "Sales Order",
 			target: frm,
-			setters: {
-				customer: frm.doc.customer,
-			},
+			setters: [
+				{
+					fieldname: "customer",
+					fieldtype: "Link",
+					options: "Customer",
+					label: __("Customer"),
+					default: frm.doc.customer,
+					read_only: 1,
+				},
+				{
+					fieldname: "po_no",
+					fieldtype: "Data",
+					label: __("Customer's Purchase Order"),
+					read_only: 1,
+				},
+				{
+					fieldname: "custom_remaining_quantity",
+					fieldtype: "Float",
+					label: __("Remaining Quantity"),
+					read_only: 1,
+				},
+			],
 			get_query_filters: {
 				docstatus: 1,
 				status: ["not in", ["Closed", "On Hold"]],
