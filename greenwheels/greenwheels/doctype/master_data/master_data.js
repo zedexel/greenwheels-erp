@@ -11,6 +11,12 @@ function update_taxi_petty_cash_visibility(frm) {
 	frm.set_df_property("taxi_petty_cash_account_head", "reqd", has_petty_cash ? 1 : 0);
 }
 
+function update_crusher_po_required_fields(frm) {
+	const is_required = frm.doc.crusher_included ? 0 : 1;
+	frm.set_df_property("crusher", "reqd", is_required);
+	frm.set_df_property("crusher_date", "reqd", is_required);
+}
+
 // Tax calculation controller for Master Data
 greenwheels.master_data.MasterDataController = class MasterDataController extends erpnext.taxes_and_totals {
 	constructor(frm) {
@@ -410,11 +416,17 @@ frappe.ui.form.on("Master Data", {
 		// No need to set currency on Master Data itself
 	},
 
+	crusher_included: function (frm) {
+		update_crusher_po_required_fields(frm);
+	},
+
 	refresh: function (frm) {
 		// Ensure disable_rounded_total is set (if field exists)
 		if (frappe.meta.has_field(frm.doctype, "disable_rounded_total") && !frm.doc.disable_rounded_total) {
 			frm.set_value("disable_rounded_total", 1);
 		}
+
+		update_crusher_po_required_fields(frm);
 
 		// Show/hide taxi petty cash fields based on tax rows
 		update_taxi_petty_cash_visibility(frm);

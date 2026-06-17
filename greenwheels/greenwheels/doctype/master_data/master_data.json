@@ -158,12 +158,14 @@
    "fieldname": "crusher",
    "fieldtype": "Link",
    "label": "Crusher",
+   "mandatory_depends_on": "eval:!doc.crusher_included",
    "options": "Supplier"
   },
   {
    "fieldname": "crusher_date",
    "fieldtype": "Date",
-   "label": "Date"
+   "label": "Date",
+   "mandatory_depends_on": "eval:!doc.crusher_included"
   },
   {
    "fieldname": "items_section",
