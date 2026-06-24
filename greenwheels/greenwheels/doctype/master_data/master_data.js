@@ -3,6 +3,20 @@
 
 frappe.provide("greenwheels.master_data");
 
+function update_taxi_petty_cash_visibility(frm) {
+	const has_petty_cash = (frm.doc.taxi_taxes || []).some(row => row.custom_is_petty_cash);
+	frm.toggle_display("taxi_petty_cash_account", has_petty_cash);
+	frm.toggle_display("taxi_petty_cash_account_head", has_petty_cash);
+	frm.set_df_property("taxi_petty_cash_account", "reqd", has_petty_cash ? 1 : 0);
+	frm.set_df_property("taxi_petty_cash_account_head", "reqd", has_petty_cash ? 1 : 0);
+}
+
+function update_crusher_po_required_fields(frm) {
+	const is_required = frm.doc.crusher_included ? 0 : 1;
+	frm.set_df_property("crusher", "reqd", is_required);
+	frm.set_df_property("crusher_date", "reqd", is_required);
+}
+
 // Tax calculation controller for Master Data
 greenwheels.master_data.MasterDataController = class MasterDataController extends erpnext.taxes_and_totals {
 	constructor(frm) {
@@ -402,11 +416,20 @@ frappe.ui.form.on("Master Data", {
 		// No need to set currency on Master Data itself
 	},
 
+	crusher_included: function (frm) {
+		update_crusher_po_required_fields(frm);
+	},
+
 	refresh: function (frm) {
 		// Ensure disable_rounded_total is set (if field exists)
 		if (frappe.meta.has_field(frm.doctype, "disable_rounded_total") && !frm.doc.disable_rounded_total) {
 			frm.set_value("disable_rounded_total", 1);
 		}
+
+		update_crusher_po_required_fields(frm);
+
+		// Show/hide taxi petty cash fields based on tax rows
+		update_taxi_petty_cash_visibility(frm);
 
 		// Handle amendments - create amended versions of linked documents if they're cancelled
 		if (frm.doc.amended_from && frm.doc.docstatus === 0) {
@@ -437,7 +460,7 @@ frappe.ui.form.on("Master Data", {
 			}
 		}
 
-		// Add "Get Items From Sales Order" button in Delivery Note tab
+		// Add "Get Items From Sales Order" button in toolbar
 		if (
 			frm.doc.docstatus === 0 &&
 			frm.has_perm("write") &&
@@ -446,40 +469,98 @@ frappe.ui.form.on("Master Data", {
 			frm.add_custom_button(
 				__("Sales Order"),
 				function () {
-					if (!frm.doc.customer) {
-						frappe.throw({
-							title: __("Mandatory"),
-							message: __("Please Select a Customer"),
-						});
-					}
-					if (!frm.doc.project) {
-						frappe.throw({
-							title: __("Mandatory"),
-							message: __("Please Select a Project"),
-						});
-					}
-					erpnext.utils.map_current_doc({
-						method: "greenwheels.greenwheels.doctype.master_data.master_data.make_delivery_note_from_sales_order",
-						source_doctype: "Sales Order",
-						target: frm,
-						setters: {
-							customer: frm.doc.customer,
-						},
-						get_query_filters: {
-							docstatus: 1,
-							status: ["not in", ["Closed", "On Hold"]],
-							per_delivered: ["<", 99.99],
-							company: frm.doc.company,
-							project: frm.doc.project || undefined,
-						},
-						allow_child_item_selection: true,
-						child_fieldname: "items",
-						child_columns: ["item_code", "item_name", "qty", "delivered_qty"],
-					});
+					frm.events.open_sales_order_picker(frm);
 				},
 				__("Get Items From")
 			);
 		}
+
+		// Inject instructional notice + shortcut button inside the Delivery Order section
+		if (frm.doc.docstatus === 0 && frm.fields_dict["items"]) {
+			const inject_do_notice = function () {
+				const grid_wrapper = $(frm.fields_dict["items"].grid.wrapper);
+				grid_wrapper.find(".do-so-notice").remove();
+
+				const notice = $(
+					`<div class="do-so-notice" style="
+						display:flex; align-items:center; justify-content:space-between;
+						gap:10px; background:#fff0f0; border:1px solid #f5c0c0;
+						border-radius:6px; padding:9px 14px; margin-bottom:10px;">
+						<span style="color:#c0392b; font-size:12px; line-height:1.5;">
+							<strong>&#9888;&nbsp;${__("Required")}:</strong>&nbsp;
+							${__("You must select a Customer and Project before importing items from a Sales Order.")}
+						</span>
+						<button class="btn btn-xs btn-primary do-so-shortcut-btn">
+							<i class="fa fa-arrow-down" style="margin-right:4px;"></i>
+							${__("Get from Sales Order")}
+						</button>
+					</div>`
+				);
+
+				grid_wrapper.prepend(notice);
+
+				notice.find(".do-so-shortcut-btn").on("click", function () {
+					frm.events.open_sales_order_picker(frm);
+				});
+			};
+
+			inject_do_notice();
+			setTimeout(inject_do_notice, 300);
+		}
+	},
+
+	open_sales_order_picker: function (frm) {
+		if (!frm.doc.customer) {
+			frappe.throw({
+				title: __("Mandatory"),
+				message: __("Please select a Customer before importing from a Sales Order."),
+			});
+			return;
+		}
+		if (!frm.doc.project) {
+			frappe.throw({
+				title: __("Mandatory"),
+				message: __("Please select a Project before importing from a Sales Order."),
+			});
+			return;
+		}
+		erpnext.utils.map_current_doc({
+			method: "greenwheels.greenwheels.doctype.master_data.master_data.make_delivery_note_from_sales_order",
+			source_doctype: "Sales Order",
+			target: frm,
+			setters: [
+				{
+					fieldname: "customer",
+					fieldtype: "Link",
+					options: "Customer",
+					label: __("Customer"),
+					default: frm.doc.customer,
+					read_only: 1,
+				},
+				{
+					fieldname: "po_no",
+					fieldtype: "Data",
+					label: __("Customer's Purchase Order"),
+					read_only: 1,
+				},
+				{
+					fieldname: "custom_remaining_quantity",
+					fieldtype: "Float",
+					label: __("Remaining Quantity"),
+					read_only: 1,
+				},
+			],
+			get_query_filters: {
+				docstatus: 1,
+				status: ["not in", ["Closed", "On Hold"]],
+				per_delivered: ["<", 99.99],
+				company: frm.doc.company,
+				project: frm.doc.project || undefined,
+			},
+			allow_child_item_selection: true,
+			child_fieldname: "items",
+			child_columns: ["item_code", "item_name", "qty", "delivered_qty"],
+		});
 	},
 
 	handle_amendment_linked_documents: function (frm) {
@@ -1082,6 +1163,20 @@ frappe.ui.form.on("Delivery Note Item", {
 
 // Purchase Taxes and Charges handlers (for taxi_taxes and crusher_taxes)
 frappe.ui.form.on("Purchase Taxes and Charges", {
+	custom_is_petty_cash: function (frm, cdt, cdn) {
+		if (frm.doctype !== "Master Data") return;
+		const row = locals[cdt][cdn];
+		if (row.parentfield === "taxi_taxes") {
+			if (row.custom_is_petty_cash && row.charge_type !== "Actual") {
+				frappe.model.set_value(cdt, cdn, "charge_type", "Actual").then(() => {
+					frappe.model.set_value(cdt, cdn, "rate", 0);
+					frm.refresh_field("taxi_taxes");
+				});
+			}
+			update_taxi_petty_cash_visibility(frm);
+		}
+	},
+
 	rate: function (frm, cdt, cdn) {
 		if (frm.doctype !== "Master Data") return;
 		const row = locals[cdt][cdn];

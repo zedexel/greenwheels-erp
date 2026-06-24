@@ -35,10 +35,21 @@ class MasterData(Document):
 			if self.disable_rounded_total != 1:
 				self.disable_rounded_total = 1
 
-		# Validate required fields
+		# Always-required fields (even for drafts)
 		if not self.company:
 			frappe.throw(_("Company is mandatory"))
 
+		# Project must always be set so naming/links are consistent
+		if not self.project:
+			frappe.throw(_("Project is mandatory"))
+
+		# Extra mandatory checks only when submitting
+		if getattr(self, "_action", None) == "submit":
+			self.validate_for_submit()
+
+	def validate_for_submit(self):
+		"""Validation that should run only when submitting Master Data."""
+		# Taxi / delivery note header
 		if not self.taxi:
 			frappe.throw(_("Taxi Supplier is mandatory"))
 
@@ -51,7 +62,7 @@ class MasterData(Document):
 		if not self.date:
 			frappe.throw(_("Delivery Note Date is mandatory"))
 
-		# Validate items exist
+		# Validate Taxi PO items exist
 		if not self.taxi_items or len(self.taxi_items) == 0:
 			frappe.throw(_("Please add at least one item in Taxi PO"))
 
@@ -64,8 +75,36 @@ class MasterData(Document):
 			if not self.crusher_items or len(self.crusher_items) == 0:
 				frappe.throw(_("Please add at least one item in Crusher PO when Crusher Included is not checked"))
 
+		# Validate Delivery Note items exist
 		if not self.items or len(self.items) == 0:
 			frappe.throw(_("Please add at least one item in Delivery Note"))
+
+		# Validate Petty Cash fields when Crusher payment is Cash.
+		if not self.crusher_included and getattr(self, "custom_payment", None) == "Cash":
+			if not getattr(self, "crusher_petty_cash_account", None):
+				frappe.throw(_("Petty Cash Account is mandatory when Crusher Payment type is Cash."))
+			if not getattr(self, "crusher_petty_cash_account_head", None):
+				frappe.throw(_("Petty Cash Account Head is mandatory when Crusher Payment type is Cash."))
+
+		# Validate petty cash fields for Taxi Tax rows marked for cash payment.
+		# Petty Cash Account and Account Head are shared parent-level fields, not per-row.
+		taxi_petty_cash_rows = [t for t in (self.taxi_taxes or []) if t.get("custom_is_petty_cash")]
+		if taxi_petty_cash_rows:
+			if not getattr(self, "taxi_petty_cash_account", None):
+				frappe.throw(
+					_("Petty Cash Account is mandatory when any Taxi Tax row has 'Pay via Petty Cash' checked.")
+				)
+			if not getattr(self, "taxi_petty_cash_account_head", None):
+				frappe.throw(
+					_("Petty Cash Account Head is mandatory when any Taxi Tax row has 'Pay via Petty Cash' checked.")
+				)
+			for tax_row in taxi_petty_cash_rows:
+				if flt(tax_row.get("tax_amount", 0)) <= 0:
+					frappe.throw(
+						_("Taxi Tax row {0}: Tax Amount must be greater than zero for Petty Cash payment.").format(
+							tax_row.idx
+						)
+					)
 
 	def calculate_taxi_po_totals(self):
 		"""Calculate taxes and totals for Taxi PO section"""
@@ -206,7 +245,23 @@ class MasterData(Document):
 					self.do_grand_total += tax_amount
 
 	def before_save(self):
-		"""Create or update Purchase Orders and Delivery Note before saving"""
+		"""Hook before every save.
+
+		No linked Purchase Orders or Delivery Note are created while the
+		document is in draft. Linked documents are created/updated in
+		before_submit instead. We still normalise tax tables here so that
+		child rows can be saved without DB errors.
+		"""
+		# Convert item_wise_tax_detail from dict to JSON string for all tax tables.
+		# This is required because Frappe stores this field as JSON in the database.
+		for tax_table in [self.taxi_taxes, self.crusher_taxes, self.taxes]:
+			if tax_table:
+				for tax in tax_table:
+					if tax.get("item_wise_tax_detail") and isinstance(tax.item_wise_tax_detail, dict):
+						tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail, separators=(",", ":"))
+
+	def before_submit(self):
+		"""Before submitting Master Data, create or update linked POs and Delivery Note."""
 		# Note: Amendment handling is done in validate() to prevent link validation errors
 		# Convert item_wise_tax_detail from dict to JSON string for all tax tables
 		# This is required because Frappe stores this field as JSON in the database
@@ -230,6 +285,11 @@ class MasterData(Document):
 			taxes=self.taxi_taxes,
 			grand_total=self.taxi_grand_total,
 			field_name="taxi_po_name",
+			invoice=getattr(self, "taxi_invoice", None),
+			invoice_date=getattr(self, "taxi_invoice_date", None),
+			reference=None,
+			attachment=getattr(self, "taxi_attachement", None),
+			po_type="Taxi",
 		)
 
 		# Create/update Crusher Purchase Order only if crusher_included is False (separate crusher supplier)
@@ -241,6 +301,12 @@ class MasterData(Document):
 				taxes=self.crusher_taxes,
 				grand_total=self.crusher_grand_total,
 				field_name="crusher_po_name",
+				invoice=None,
+				invoice_date=None,
+				reference=getattr(self, "crusher_reference", None),
+				attachment=getattr(self, "crusher_attachement", None),
+				po_type="Crusher",
+				custom_payment=getattr(self, "custom_payment", None),
 			)
 		else:
 			# Cancel and clear crusher PO if crusher_included is True (crusher is included with taxi)
@@ -277,8 +343,35 @@ class MasterData(Document):
 			if dn_doc.docstatus == 0:
 				dn_doc.submit()
 
+		# Create and submit Petty Cash Entry for Crusher cash payment.
+		if not self.crusher_included and getattr(self, "custom_payment", None) == "Cash":
+			self._create_crusher_petty_cash_entry()
+
+		# Create and submit Petty Cash Entries for Taxi tax rows marked as cash payment.
+		self._create_taxi_tax_petty_cash_entries()
+
 	def on_cancel(self):
 		"""Cancel linked Purchase Orders and Delivery Note"""
+		# Cancel Petty Cash Entries created from Taxi tax rows.
+		for tax_row in (self.taxi_taxes or []):
+			pce_name = tax_row.get("custom_petty_cash_entry")
+			if pce_name:
+				try:
+					pce_doc = frappe.get_doc("Petty Cash Entry", pce_name)
+					if pce_doc.docstatus == 1:
+						pce_doc.cancel()
+				except frappe.DoesNotExistError:
+					pass
+
+		# Cancel Crusher Petty Cash Entry first (before cancelling the PO).
+		if getattr(self, "crusher_petty_cash_entry", None):
+			try:
+				pce_doc = frappe.get_doc("Petty Cash Entry", self.crusher_petty_cash_entry)
+				if pce_doc.docstatus == 1:
+					pce_doc.cancel()
+			except frappe.DoesNotExistError:
+				pass
+
 		# Cancel Taxi Purchase Order
 		if self.taxi_po_name:
 			try:
@@ -401,8 +494,132 @@ class MasterData(Document):
 		# Amendments are now handled in before_save, but keep this for any additional logic needed
 		pass
 
-	def create_or_update_purchase_order(self, supplier, transaction_date, items, taxes, grand_total, field_name):
-		"""Create or update Purchase Order document"""
+	def _create_crusher_petty_cash_entry(self):
+		"""Create and submit a Petty Cash Debit entry for a Crusher cash payment."""
+		amount = flt(self.crusher_grand_total)
+		if amount <= 0:
+			frappe.throw(
+				_("Crusher Grand Total must be greater than zero to create a Petty Cash Entry.")
+			)
+
+		pce = frappe.new_doc("Petty Cash Entry")
+		pce.posting_date = self.crusher_date or frappe.utils.today()
+		pce.petty_cash_account = self.crusher_petty_cash_account
+		pce.entry_type = "Debit"
+		pce.amount = amount
+		pce.account_head = self.crusher_petty_cash_account_head
+		# grand_total == amount; basic_amount will auto-set in PCE validate (vat_amount == 0).
+		pce.grand_total = amount
+		pce.basic_amount = amount
+		pce.vat_amount = 0
+		pce.company = self.company
+		pce.invoice_voucher = getattr(self, "crusher_reference", "") or ""
+		pce.vendor_company_name = self.crusher
+		item_names = ", ".join(
+			row.item_name or row.item_code or ""
+			for row in (self.crusher_items or [])
+			if row.item_name or row.item_code
+		)
+		pce.description = _("Cash paid for {0} to {1}").format(item_names or _("items"), self.crusher or "")
+		pce.remarks = _("Auto-created from Master Data {0} on submit.").format(self.name)
+
+		pce.insert(ignore_permissions=True)
+		pce.submit()
+
+		self.db_set("crusher_petty_cash_entry", pce.name, notify=True)
+		frappe.msgprint(
+			_("Petty Cash Entry {0} created — {1} deducted from {2}.").format(
+				frappe.utils.get_link_to_form("Petty Cash Entry", pce.name),
+				frappe.format(amount, {"fieldtype": "Currency"}),
+				frappe.bold(self.crusher_petty_cash_account),
+			),
+			alert=True,
+			indicator="green",
+		)
+
+	def _create_taxi_tax_petty_cash_entries(self):
+		"""Create and submit a Petty Cash Debit entry for each Taxi tax row marked as cash payment.
+
+		Petty Cash Account and Account Head are taken from the parent-level fields
+		taxi_petty_cash_account and taxi_petty_cash_account_head, which are shared
+		across all petty cash rows in the taxi taxes table.
+		"""
+		petty_cash_account = getattr(self, "taxi_petty_cash_account", None)
+		petty_cash_account_head = getattr(self, "taxi_petty_cash_account_head", None)
+
+		for tax_row in (self.taxi_taxes or []):
+			if not tax_row.get("custom_is_petty_cash"):
+				continue
+
+			amount = flt(tax_row.tax_amount)
+			# Guard — validation already ran but protect against edge cases.
+			if amount <= 0:
+				continue
+
+			pce = frappe.new_doc("Petty Cash Entry")
+			pce.posting_date = self.taxi_date or frappe.utils.today()
+			pce.petty_cash_account = petty_cash_account
+			pce.entry_type = "Debit"
+			pce.amount = amount
+			pce.account_head = petty_cash_account_head
+			# grand_total == amount; basic_amount auto-sets in PCE validate (vat_amount == 0).
+			pce.grand_total = amount
+			pce.basic_amount = amount
+			pce.vat_amount = 0
+			pce.company = self.company
+			pce.invoice_voucher = getattr(self, "taxi_invoice", "") or ""
+			pce.vendor_company_name = self.taxi
+			pce.description = _("{0} Paid at {1}").format(
+				tax_row.account_head or tax_row.description or _("Tax"),
+				self.crusher or "",
+			)
+			pce.remarks = _("Auto-created from Master Data {0}, Taxi Tax row {1}.").format(
+				self.name, tax_row.idx
+			)
+
+			pce.insert(ignore_permissions=True)
+			pce.submit()
+
+			# Store the PCE name on the tax row for tracking and cancellation.
+			frappe.db.set_value(
+				"Purchase Taxes and Charges",
+				tax_row.name,
+				"custom_petty_cash_entry",
+				pce.name,
+			)
+
+			frappe.msgprint(
+				_("Petty Cash Entry {0} created for Taxi Tax row {1} — {2} deducted from {3}.").format(
+					frappe.utils.get_link_to_form("Petty Cash Entry", pce.name),
+					tax_row.idx,
+					frappe.format(amount, {"fieldtype": "Currency"}),
+					frappe.bold(petty_cash_account),
+				),
+				alert=True,
+				indicator="green",
+			)
+
+	def create_or_update_purchase_order(
+		self,
+		supplier,
+		transaction_date,
+		items,
+		taxes,
+		grand_total,
+		field_name,
+		invoice=None,
+		invoice_date=None,
+		reference=None,
+		attachment=None,
+		po_type=None,
+		custom_payment=None,
+	):
+		"""Create or update Purchase Order document.
+
+		po_type is an optional flag used to set custom_purchase_order_type
+		on the Purchase Order (e.g. \"Taxi\" or \"Crusher\").
+		custom_payment is passed from Master Data (e.g. crusher tab) to Purchase Order.
+		"""
 		po_name = self.get(field_name)
 
 		if po_name:
@@ -431,6 +648,23 @@ class MasterData(Document):
 				po_doc.conversion_rate = 1.0
 				po_doc.disable_rounded_total = 1
 				po_doc.project = self.project
+				
+				# Map new fields from Master Data -> custom fields on Purchase Order
+				if invoice is not None:
+					po_doc.custom_supplier_invoice = invoice
+				if invoice_date is not None:
+					po_doc.custom_supplier_invoice_date = invoice_date
+				if reference is not None:
+					po_doc.custom_supplier_reference = reference
+				if attachment is not None:
+					po_doc.custom_supplier_attachment = attachment
+
+				# Distinguish between Taxi / Crusher purchase orders if requested
+				if po_type is not None:
+					po_doc.custom_purchase_order_type = po_type
+
+				if custom_payment is not None:
+					po_doc.custom_payment = custom_payment
 
 				# Clear existing items and taxes
 				po_doc.items = []
@@ -471,6 +705,23 @@ class MasterData(Document):
 			po_doc.conversion_rate = 1.0
 			po_doc.disable_rounded_total = 1
 			po_doc.project = self.project
+			
+			# Map new fields from Master Data -> custom fields on Purchase Order
+			if invoice is not None:
+				po_doc.custom_supplier_invoice = invoice
+			if invoice_date is not None:
+				po_doc.custom_supplier_invoice_date = invoice_date
+			if reference is not None:
+				po_doc.custom_supplier_reference = reference
+			if attachment is not None:
+				po_doc.custom_supplier_attachment = attachment
+
+			# Distinguish between Taxi / Crusher purchase orders if requested
+			if po_type is not None:
+				po_doc.custom_purchase_order_type = po_type
+
+			if custom_payment is not None:
+				po_doc.custom_payment = custom_payment
 
 			# Add items
 			for item in items:
@@ -531,6 +782,14 @@ class MasterData(Document):
 				dn_doc.ignore_pricing_rule = 1  # Ignore price list, user enters rates manually
 				dn_doc.disable_rounded_total = 1
 				dn_doc.project = self.project
+				
+				# Map new fields from Master Data -> custom fields on Delivery Note
+				if hasattr(self, 'do_number') and self.do_number:
+					dn_doc.custom_do_number = self.do_number
+				if hasattr(self, 'vehicle_number') and self.vehicle_number:
+					dn_doc.vehicle_no = self.vehicle_number
+				if hasattr(self, 'do_attachement') and self.do_attachement:
+					dn_doc.custom_do_attachment = self.do_attachement
 
 				# Clear existing items and taxes
 				dn_doc.items = []
@@ -588,6 +847,14 @@ class MasterData(Document):
 			dn_doc.ignore_pricing_rule = 1  # Ignore price list, user enters rates manually
 			dn_doc.disable_rounded_total = 1
 			dn_doc.project = self.project
+			
+			# Map new fields from Master Data -> custom fields on Delivery Note
+			if hasattr(self, 'do_number') and self.do_number:
+				dn_doc.custom_do_number = self.do_number
+			if hasattr(self, 'vehicle_number') and self.vehicle_number:
+				dn_doc.vehicle_no = self.vehicle_number
+			if hasattr(self, 'do_attachement') and self.do_attachement:
+				dn_doc.custom_do_attachment = self.do_attachement
 
 			# Add items
 			for item in self.items:

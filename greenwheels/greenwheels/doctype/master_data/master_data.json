@@ -17,8 +17,11 @@
   "taxi_po_tab",
   "taxi",
   "crusher_included",
+  "taxi_invoice",
+  "taxi_invoice_date",
   "column_break_dnpu",
   "taxi_date",
+  "taxi_attachement",
   "section_break_kbsa",
   "taxi_items",
   "section_break_plxi",
@@ -29,8 +32,10 @@
   "taxi_po_name",
   "crusher_po_tab",
   "crusher",
+  "crusher_reference",
   "column_break_nbph",
   "crusher_date",
+  "crusher_attachement",
   "items_section",
   "crusher_items",
   "taxes_section",
@@ -43,6 +48,10 @@
   "customer",
   "date",
   "time",
+  "column_break_nkhj",
+  "do_number",
+  "vehicle_number",
+  "do_attachement",
   "section_break_fwda",
   "items",
   "section_break_hqht",
@@ -149,12 +158,14 @@
    "fieldname": "crusher",
    "fieldtype": "Link",
    "label": "Crusher",
+   "mandatory_depends_on": "eval:!doc.crusher_included",
    "options": "Supplier"
   },
   {
    "fieldname": "crusher_date",
    "fieldtype": "Date",
-   "label": "Date"
+   "label": "Date",
+   "mandatory_depends_on": "eval:!doc.crusher_included"
   },
   {
    "fieldname": "items_section",
@@ -292,17 +303,61 @@
    "fieldname": "project_details_section",
    "fieldtype": "Section Break",
    "label": "Project Details"
+  },
+  {
+   "fieldname": "taxi_invoice",
+   "fieldtype": "Data",
+   "label": "Taxi Invoice"
+  },
+  {
+   "fieldname": "taxi_invoice_date",
+   "fieldtype": "Date",
+   "label": "Taxi Invoice Date"
+  },
+  {
+   "fieldname": "taxi_attachement",
+   "fieldtype": "Attach",
+   "label": "Taxi Attachement"
+  },
+  {
+   "fieldname": "crusher_reference",
+   "fieldtype": "Data",
+   "label": "Crusher Reference"
+  },
+  {
+   "fieldname": "crusher_attachement",
+   "fieldtype": "Attach",
+   "label": "Crusher Attachement"
+  },
+  {
+   "fieldname": "column_break_nkhj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "do_number",
+   "fieldtype": "Data",
+   "label": "DO Number"
+  },
+  {
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "label": "Vehicle number"
+  },
+  {
+   "fieldname": "do_attachement",
+   "fieldtype": "Attach",
+   "label": "DO Attachement"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-30 02:47:20.709313",
+ "modified": "2026-02-03 09:17:49.977803",
  "modified_by": "Administrator",
  "module": "greenwheels",
  "name": "Master Data",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
