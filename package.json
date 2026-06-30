@@ -1,0 +1,8 @@
+{
+	"private": true,
+	"scripts": {
+		"dev": "cd frontend && yarn dev",
+		"build": "cd frontend && yarn build",
+		"postbuild": "echo 'Built to greenwheels/public/greenwheels — run: bench --site <site> clear-cache'"
+	}
+}

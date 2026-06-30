@@ -1,0 +1,22 @@
+---
+safe_render: false
+---
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<link rel="icon" href="/assets/greenwheels/greenwheels/icon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Green Wheels</title>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script>
+			{% for key in boot %}
+			window["{{ key }}"] = {{ boot[key] | tojson }};
+			{% endfor %}
+		</script>
+		<script src="/assets/greenwheels/greenwheels/assets/index.js"></script>
+	</body>
+</html>

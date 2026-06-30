@@ -11,15 +11,20 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "greenwheels",
-# 		"logo": "/assets/greenwheels/logo.png",
-# 		"title": "greenwheels",
-# 		"route": "/greenwheels",
-# 		"has_permission": "greenwheels.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "greenwheels",
+		"logo": "/assets/greenwheels/greenwheels/icon.svg",
+		"title": "Green Wheels",
+		"route": "/greenwheels",
+		"has_permission": "greenwheels.api.permission.has_app_permission",
+	}
+]
+
+website_route_rules = [
+	{"from_route": "/greenwheels/<path:app_path>", "to_route": "greenwheels"},
+	{"from_route": "/greenwheels", "to_route": "greenwheels"},
+]
 
 # Includes in <head>
 # ------------------
