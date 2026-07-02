@@ -74,17 +74,54 @@ export interface MasterDataDoc {
 	delivery_note_name?: string;
 }
 
-export const PO_ITEM_COLUMNS = [
-	{ key: "item_code", label: "Item", type: "link" as const, linkDoctype: "Item" },
-	{ key: "qty", label: "Qty", type: "number" as const },
-	{ key: "rate", label: "Rate", type: "number" as const },
-	{ key: "schedule_date", label: "Required By", type: "date" as const },
+const ITEM_QUERY = "erpnext.controllers.queries.item_query";
+
+export type LineItemColumnType = "link" | "number" | "date" | "text" | "readonly";
+
+export interface LineItemColumn {
+	key: string;
+	label: string;
+	type: LineItemColumnType;
+	linkDoctype?: string;
+	linkQuery?: string;
+	linkFilters?: Record<string, unknown>;
+	readonlyFormat?: "text" | "currency";
+}
+
+export function formatCurrency(value?: number | string | null): string {
+	if (value === undefined || value === null || value === "") return "0.00";
+	return Number(value).toFixed(2);
+}
+
+export const PO_ITEM_COLUMNS: LineItemColumn[] = [
+	{
+		key: "item_code",
+		label: "Item Code",
+		type: "link",
+		linkDoctype: "Item",
+		linkQuery: ITEM_QUERY,
+		linkFilters: { is_purchase_item: 1 },
+	},
+	{ key: "schedule_date", label: "Required By", type: "date" },
+	{ key: "qty", label: "Quantity", type: "number" },
+	{ key: "uom", label: "UOM", type: "readonly", readonlyFormat: "text" },
+	{ key: "rate", label: "Rate", type: "number" },
+	{ key: "amount", label: "Amount", type: "readonly", readonlyFormat: "currency" },
 ];
 
-export const DN_ITEM_COLUMNS = [
-	{ key: "item_code", label: "Item", type: "link" as const, linkDoctype: "Item" },
-	{ key: "qty", label: "Qty", type: "number" as const },
-	{ key: "rate", label: "Rate", type: "number" as const },
+export const DN_ITEM_COLUMNS: LineItemColumn[] = [
+	{
+		key: "item_code",
+		label: "Item Code",
+		type: "link",
+		linkDoctype: "Item",
+		linkQuery: ITEM_QUERY,
+		linkFilters: { is_sales_item: 1 },
+	},
+	{ key: "qty", label: "Quantity", type: "number" },
+	{ key: "uom", label: "UOM", type: "readonly", readonlyFormat: "text" },
+	{ key: "rate", label: "Rate", type: "number" },
+	{ key: "amount", label: "Amount", type: "readonly", readonlyFormat: "currency" },
 ];
 
 const TABLE_PARENTFIELDS: Record<string, string> = {
@@ -224,6 +261,143 @@ export function serializeMasterDataDoc(doc: MasterDataDoc): MasterDataDoc {
 	}
 
 	return payload;
+}
+
+export interface TaxRateDetails {
+	tax_rate?: number;
+	account_name?: string;
+}
+
+export function hasCalculableMasterDataContent(doc: MasterDataDoc): boolean {
+	const hasItems =
+		(doc.taxi_items?.length ?? 0) > 0 ||
+		(doc.crusher_items?.length ?? 0) > 0 ||
+		(doc.items?.length ?? 0) > 0;
+	const hasTaxes =
+		(doc.taxi_taxes?.length ?? 0) > 0 ||
+		(doc.crusher_taxes?.length ?? 0) > 0 ||
+		(doc.taxes?.length ?? 0) > 0;
+	return hasItems || hasTaxes;
+}
+
+function snapshotItemRow(row: LineItemRow) {
+	return {
+		item_code: row.item_code,
+		qty: row.qty,
+		rate: row.rate,
+		schedule_date: row.schedule_date,
+		uom: row.uom,
+	};
+}
+
+function snapshotTaxRow(row: TaxRow) {
+	return {
+		charge_type: row.charge_type,
+		account_head: row.account_head,
+		rate: row.rate,
+		tax_amount: row.tax_amount,
+		custom_is_petty_cash: row.custom_is_petty_cash,
+	};
+}
+
+export function getCalculableSnapshot(doc: MasterDataDoc): string {
+	return JSON.stringify({
+		crusher_included: doc.crusher_included,
+		company: doc.company,
+		taxi: doc.taxi,
+		taxi_date: doc.taxi_date,
+		crusher: doc.crusher,
+		crusher_date: doc.crusher_date,
+		customer: doc.customer,
+		date: doc.date,
+		taxi_items: (doc.taxi_items || []).map(snapshotItemRow),
+		crusher_items: (doc.crusher_items || []).map(snapshotItemRow),
+		items: (doc.items || []).map(snapshotItemRow),
+		taxi_taxes: (doc.taxi_taxes || []).map(snapshotTaxRow),
+		crusher_taxes: (doc.crusher_taxes || []).map(snapshotTaxRow),
+		taxes: (doc.taxes || []).map(snapshotTaxRow),
+	});
+}
+
+function mergeItemRows(prevItems: LineItemRow[], updatedItems: LineItemRow[]): LineItemRow[] {
+	let changed = false;
+	const merged = prevItems.map((row, index) => {
+		const calc = updatedItems[index];
+		if (!calc) return row;
+
+		const next = {
+			...row,
+			amount: calc.amount,
+			net_amount: calc.net_amount,
+			uom: calc.uom || row.uom,
+			item_name: calc.item_name || row.item_name,
+		};
+
+		if (
+			row.amount === next.amount &&
+			row.net_amount === next.net_amount &&
+			row.uom === next.uom &&
+			row.item_name === next.item_name
+		) {
+			return row;
+		}
+
+		changed = true;
+		return next;
+	});
+
+	return changed ? merged : prevItems;
+}
+
+function mergeTaxRows(prevTaxes: TaxRow[], updatedTaxes: TaxRow[]): TaxRow[] {
+	let changed = false;
+	const merged = prevTaxes.map((row, index) => {
+		const calc = updatedTaxes[index];
+		if (!calc) return row;
+
+		const next = {
+			...row,
+			tax_amount: calc.tax_amount,
+			total: calc.total,
+		};
+
+		if (row.tax_amount === next.tax_amount && row.total === next.total) {
+			return row;
+		}
+
+		changed = true;
+		return next;
+	});
+
+	return changed ? merged : prevTaxes;
+}
+
+export function mergeMasterDataTotals(
+	prev: MasterDataDoc,
+	updated: MasterDataDoc,
+): MasterDataDoc {
+	return {
+		...prev,
+		taxi_grand_total: updated.taxi_grand_total,
+		crusher_grand_total: updated.crusher_grand_total,
+		do_grand_total: updated.do_grand_total,
+		taxi_items: mergeItemRows(prev.taxi_items || [], updated.taxi_items || []),
+		crusher_items: mergeItemRows(prev.crusher_items || [], updated.crusher_items || []),
+		items: mergeItemRows(prev.items || [], updated.items || []),
+		taxi_taxes: mergeTaxRows(prev.taxi_taxes || [], updated.taxi_taxes || []),
+		crusher_taxes: mergeTaxRows(prev.crusher_taxes || [], updated.crusher_taxes || []),
+		taxes: mergeTaxRows(prev.taxes || [], updated.taxes || []),
+	};
+}
+
+export async function fetchTaxRate(accountHead: string): Promise<TaxRateDetails | null> {
+	if (!accountHead) return null;
+
+	const result = await frappeCall<TaxRateDetails | null>(
+		"erpnext.controllers.accounts_controller.get_tax_rate",
+		{ account_head: accountHead },
+	);
+	return result ?? null;
 }
 
 export async function fetchProjectName(project: string): Promise<string | null> {

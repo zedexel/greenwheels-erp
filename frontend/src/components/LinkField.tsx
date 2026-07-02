@@ -12,6 +12,7 @@ interface LinkFieldProps {
 	disabled?: boolean;
 	placeholder?: string;
 	filters?: Record<string, unknown>;
+	linkQuery?: string;
 	allowCreate?: boolean;
 	returnTo?: string;
 	selectField?: string;
@@ -24,21 +25,22 @@ export default function LinkField({
 	onChange,
 	required,
 	disabled,
-	placeholder = "Search...",
+	placeholder = "",
 	filters,
+	linkQuery,
 	allowCreate = true,
 	returnTo,
 	selectField,
 }: LinkFieldProps) {
 	const navigate = useNavigate();
-	const [query, setQuery] = useState(value || "");
+	const [searchText, setSearchText] = useState(value || "");
 	const [results, setResults] = useState<{ value: string; description?: string }[]>([]);
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		setQuery(value || "");
+		setSearchText(value || "");
 	}, [value]);
 
 	useEffect(() => {
@@ -57,7 +59,7 @@ export default function LinkField({
 		const timer = setTimeout(async () => {
 			setLoading(true);
 			try {
-				const items = await searchLink(doctype, query, filters);
+				const items = await searchLink(doctype, searchText, filters, linkQuery);
 				setResults(items);
 			} catch {
 				setResults([]);
@@ -67,11 +69,11 @@ export default function LinkField({
 		}, 250);
 
 		return () => clearTimeout(timer);
-	}, [query, doctype, filters, open]);
+	}, [searchText, doctype, filters, linkQuery, open]);
 
 	function selectItem(itemValue: string) {
 		onChange(itemValue);
-		setQuery(itemValue);
+		setSearchText(itemValue);
 		setOpen(false);
 	}
 
@@ -98,13 +100,13 @@ export default function LinkField({
 			<div className="flex gap-2">
 				<input
 					type="text"
-					value={query}
+					value={searchText}
 					disabled={disabled}
 					placeholder={placeholder}
 					className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:bg-gray-50"
 					onFocus={() => setOpen(true)}
 					onChange={(e) => {
-						setQuery(e.target.value);
+						setSearchText(e.target.value);
 						setOpen(true);
 						if (!e.target.value) onChange("");
 					}}

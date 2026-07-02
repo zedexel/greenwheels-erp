@@ -84,12 +84,17 @@ export async function searchLink(
 	doctype: string,
 	txt: string,
 	filters?: Record<string, unknown>,
+	query?: string,
 ): Promise<SearchLinkResult[]> {
-	const results = await frappeCall<SearchLinkResult[]>("frappe.desk.search.search_link", {
+	const params: Record<string, unknown> = {
 		doctype,
 		txt,
 		filters: filters ?? {},
-	});
+	};
+	if (query) {
+		params.query = query;
+	}
+	const results = await frappeCall<SearchLinkResult[]>("frappe.desk.search.search_link", params);
 	return Array.isArray(results) ? results : [];
 }
 

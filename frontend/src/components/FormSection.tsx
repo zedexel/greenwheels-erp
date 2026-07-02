@@ -91,3 +91,24 @@ export function CurrencyDisplay({ value }: { value?: number }) {
 		</div>
 	);
 }
+
+export function CurrencyCell({ value }: { value?: number | string | null }) {
+	const formatted =
+		value === undefined || value === null || value === ""
+			? "0.00"
+			: Number(value).toFixed(2);
+
+	return (
+		<div className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-right text-sm text-gray-900">
+			{formatted}
+		</div>
+	);
+}
+
+export function ReadOnlyCell({ value }: { value?: string | number | null }) {
+	return (
+		<div className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-900">
+			{value ?? ""}
+		</div>
+	);
+}

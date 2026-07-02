@@ -1,18 +1,12 @@
+import { CurrencyCell, ReadOnlyCell } from "@/components/FormSection";
+import LinkField from "@/components/LinkField";
 import {
 	fetchDeliveryItemDetails,
 	fetchPurchaseItemDetails,
 	recalculateRowAmounts,
+	type LineItemColumn,
 	type LineItemRow,
 } from "@/lib/master-data";
-import LinkField from "@/components/LinkField";
-
-export interface LineItemColumn {
-	key: string;
-	label: string;
-	type: "link" | "number" | "date" | "text";
-	linkDoctype?: string;
-	placeholder?: string;
-}
 
 interface LineItemsTableProps {
 	value: LineItemRow[];
@@ -26,6 +20,14 @@ interface LineItemsTableProps {
 
 function rowKey(index: number): string {
 	return `row-${index}`;
+}
+
+function getReadonlyValue(row: LineItemRow, column: LineItemColumn): string | number | undefined {
+	if (column.key === "amount") {
+		const withAmounts = recalculateRowAmounts({ ...row });
+		return withAmounts.amount;
+	}
+	return row[column.key as keyof LineItemRow] as string | number | undefined;
 }
 
 export default function LineItemsTable({
@@ -102,14 +104,21 @@ export default function LineItemsTable({
 								<tr key={rowKey(index)}>
 									{columns.map((column) => (
 										<td key={column.key} className="px-3 py-2 align-top">
-											{column.type === "link" && column.linkDoctype ? (
+											{column.type === "readonly" ? (
+												column.readonlyFormat === "currency" ? (
+													<CurrencyCell value={getReadonlyValue(row, column)} />
+												) : (
+													<ReadOnlyCell value={getReadonlyValue(row, column)} />
+												)
+											) : column.type === "link" && column.linkDoctype ? (
 												<LinkField
 													label=""
 													doctype={column.linkDoctype}
 													value={String(row[column.key as keyof LineItemRow] || "")}
 													onChange={(v) => updateRow(index, column.key, v)}
 													disabled={disabled}
-													placeholder={column.placeholder || "Select"}
+													filters={column.linkFilters}
+													linkQuery={column.linkQuery}
 													allowCreate
 													returnTo={window.location.pathname}
 												/>
@@ -149,7 +158,7 @@ export default function LineItemsTable({
 					className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
 					onClick={addRow}
 				>
-					+ Add row
+					Add Row
 				</button>
 			)}
 		</div>

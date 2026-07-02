@@ -18,6 +18,9 @@ import {
 	DN_ITEM_COLUMNS,
 	emptyMasterDataDoc,
 	fetchProjectName,
+	getCalculableSnapshot,
+	hasCalculableMasterDataContent,
+	mergeMasterDataTotals,
 	PO_ITEM_COLUMNS,
 	saveMasterData,
 	submitMasterData,
@@ -44,6 +47,9 @@ export default function MasterDataForm() {
 	const [validationErrors, setValidationErrors] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const calcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const isApplyingTotalsRef = useRef(false);
+	const calcRequestIdRef = useRef(0);
+	const lastCalcSnapshotRef = useRef("");
 
 	const isReadOnly = (doc.docstatus ?? 0) !== 0;
 
@@ -130,22 +136,27 @@ export default function MasterDataForm() {
 	}, [isCreate, name]);
 
 	const recalculateTotals = useCallback((currentDoc: MasterDataDoc) => {
+		if (!hasCalculableMasterDataContent(currentDoc)) {
+			lastCalcSnapshotRef.current = "";
+			return;
+		}
+
+		const snapshot = getCalculableSnapshot(currentDoc);
+		if (snapshot === lastCalcSnapshotRef.current) {
+			return;
+		}
+
 		if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
+		const requestId = ++calcRequestIdRef.current;
+
 		calcTimerRef.current = setTimeout(async () => {
 			try {
 				const updated = await calculateMasterDataTotals(currentDoc);
-				setDoc((prev) => ({
-					...prev,
-					taxi_grand_total: updated.taxi_grand_total,
-					crusher_grand_total: updated.crusher_grand_total,
-					do_grand_total: updated.do_grand_total,
-					taxi_taxes: updated.taxi_taxes || prev.taxi_taxes,
-					crusher_taxes: updated.crusher_taxes || prev.crusher_taxes,
-					taxes: updated.taxes || prev.taxes,
-					taxi_items: updated.taxi_items || prev.taxi_items,
-					crusher_items: updated.crusher_items || prev.crusher_items,
-					items: updated.items || prev.items,
-				}));
+				if (requestId !== calcRequestIdRef.current) return;
+
+				lastCalcSnapshotRef.current = snapshot;
+				isApplyingTotalsRef.current = true;
+				setDoc((prev) => mergeMasterDataTotals(prev, updated));
 			} catch {
 				// Totals preview is best-effort while editing
 			}
@@ -154,6 +165,10 @@ export default function MasterDataForm() {
 
 	useEffect(() => {
 		if (loading || isReadOnly) return;
+		if (isApplyingTotalsRef.current) {
+			isApplyingTotalsRef.current = false;
+			return;
+		}
 		recalculateTotals(doc);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- recalc on table/tax changes only
 	}, [
@@ -255,7 +270,7 @@ export default function MasterDataForm() {
 					to="/master-data"
 					className="text-sm font-medium text-emerald-700 hover:underline"
 				>
-					← Back to list
+					← Back to listdddd
 				</Link>
 				<div className="flex flex-wrap items-center gap-2">
 					<StatusBadge docstatus={doc.docstatus} />
