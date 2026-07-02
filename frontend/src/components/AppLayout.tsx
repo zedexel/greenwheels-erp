@@ -14,7 +14,8 @@ import { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { masterNavItems } from "@/config/masters";
-import iconUrl from "@/assets/icon.svg";
+import logoMarkUrl from "@/assets/logo.png";
+import logoFullUrl from "@/assets/logo-full.png";
 
 const SIDEBAR_STORAGE_KEY = "greenwheels-sidebar-collapsed";
 
@@ -87,17 +88,21 @@ export default function AppLayout() {
 			>
 				<div
 					className={`flex items-center border-b border-gray-200 py-4 ${
-						sidebarCollapsed ? "justify-center px-3" : "gap-3 px-5"
+						sidebarCollapsed ? "justify-center px-2" : "px-4"
 					}`}
 				>
-					<img src={iconUrl} alt="Green Wheels" className="h-9 w-9 shrink-0 rounded-lg" />
-					{!sidebarCollapsed && (
-						<div className="min-w-0">
-							<div className="text-sm font-semibold leading-tight text-gray-900">
-								Green Wheels
-							</div>
-							<div className="text-xs text-gray-500">Transport & Contracting</div>
-						</div>
+					{sidebarCollapsed ? (
+						<img
+							src={logoMarkUrl}
+							alt="Green Wheels"
+							className="h-10 w-10 shrink-0 object-contain"
+						/>
+					) : (
+						<img
+							src={logoFullUrl}
+							alt="Green Wheels Transport and General Contracting"
+							className="h-12 w-full max-w-[220px] object-contain object-left"
+						/>
 					)}
 				</div>
 

@@ -16,6 +16,7 @@ interface LineItemsTableProps {
 	disabled?: boolean;
 	defaultRow?: Partial<LineItemRow>;
 	itemDetailsContext?: Record<string, unknown>;
+	referenceDoctype?: string;
 }
 
 function rowKey(index: number): string {
@@ -38,6 +39,7 @@ export default function LineItemsTable({
 	disabled,
 	defaultRow = {},
 	itemDetailsContext = {},
+	referenceDoctype,
 }: LineItemsTableProps) {
 	async function updateRow(index: number, key: string, cellValue: unknown) {
 		const rows = [...value];
@@ -121,6 +123,8 @@ export default function LineItemsTable({
 													linkQuery={column.linkQuery}
 													allowCreate
 													returnTo={window.location.pathname}
+													referenceDoctype={referenceDoctype}
+													dropdownPlacement="above"
 												/>
 											) : (
 												<input

@@ -11,6 +11,10 @@ import {
 } from "@/components/FormSection";
 import LineItemsTable from "@/components/LineItemsTable";
 import LinkField from "@/components/LinkField";
+import MasterDataSectionNav, {
+	MASTER_DATA_SECTIONS,
+	type MasterDataSectionId,
+} from "@/components/MasterDataSectionNav";
 import TaxesTable from "@/components/TaxesTable";
 import { frappeCall } from "@/lib/frappe-api";
 import {
@@ -33,6 +37,8 @@ interface LocationState {
 	selectedValue?: string;
 }
 
+const MASTER_DATA_DOCTYPE = "Master Data";
+
 export default function MasterDataForm() {
 	const { name } = useParams();
 	const navigate = useNavigate();
@@ -50,8 +56,14 @@ export default function MasterDataForm() {
 	const isApplyingTotalsRef = useRef(false);
 	const calcRequestIdRef = useRef(0);
 	const lastCalcSnapshotRef = useRef("");
+	const isScrollingRef = useRef(false);
+
+	const [activeSection, setActiveSection] = useState<MasterDataSectionId>(
+		MASTER_DATA_SECTIONS.project,
+	);
 
 	const isReadOnly = (doc.docstatus ?? 0) !== 0;
+	const showCrusher = !doc.crusher_included;
 
 	const showTaxiPettyCash = useMemo(
 		() => (doc.taxi_taxes || []).some((row) => row.custom_is_petty_cash),
@@ -191,6 +203,70 @@ export default function MasterDataForm() {
 		recalculateTotals,
 	]);
 
+	const scrollToSection = useCallback((sectionId: MasterDataSectionId) => {
+		setActiveSection(sectionId);
+		isScrollingRef.current = true;
+		document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+		window.setTimeout(() => {
+			isScrollingRef.current = false;
+		}, 600);
+	}, []);
+
+	useEffect(() => {
+		if (!showCrusher && activeSection === MASTER_DATA_SECTIONS.crusher) {
+			setActiveSection(MASTER_DATA_SECTIONS.taxi);
+		}
+	}, [showCrusher, activeSection]);
+
+	useEffect(() => {
+		if (loading) return;
+
+		const sectionIds: MasterDataSectionId[] = showCrusher
+			? [
+					MASTER_DATA_SECTIONS.project,
+					MASTER_DATA_SECTIONS.taxi,
+					MASTER_DATA_SECTIONS.crusher,
+					MASTER_DATA_SECTIONS.customer,
+				]
+			: [
+					MASTER_DATA_SECTIONS.project,
+					MASTER_DATA_SECTIONS.taxi,
+					MASTER_DATA_SECTIONS.customer,
+				];
+
+		const scrollRoot = document.querySelector("main");
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (isScrollingRef.current) return;
+
+				const visible = entries
+					.filter((entry) => entry.isIntersecting)
+					.sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+				const topmost = entries
+					.filter((entry) => entry.isIntersecting && entry.intersectionRatio > 0)
+					.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+
+				const target = topmost || visible[0];
+				if (target?.target.id) {
+					setActiveSection(target.target.id as MasterDataSectionId);
+				}
+			},
+			{
+				root: scrollRoot,
+				rootMargin: "-10% 0px -55% 0px",
+				threshold: [0, 0.1, 0.25, 0.5],
+			},
+		);
+
+		for (const id of sectionIds) {
+			const element = document.getElementById(id);
+			if (element) observer.observe(element);
+		}
+
+		return () => observer.disconnect();
+	}, [loading, showCrusher]);
+
 	async function handleProjectChange(value: string) {
 		setField("project", value);
 		if (value) {
@@ -264,13 +340,13 @@ export default function MasterDataForm() {
 	}
 
 	return (
-		<div className="mx-auto max-w-5xl space-y-6">
+		<div className="mx-auto max-w-7xl space-y-6">
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<Link
 					to="/master-data"
 					className="text-sm font-medium text-emerald-700 hover:underline"
 				>
-					← Back to listdddd
+					← Back to list
 				</Link>
 				<div className="flex flex-wrap items-center gap-2">
 					<StatusBadge docstatus={doc.docstatus} />
@@ -347,7 +423,15 @@ export default function MasterDataForm() {
 				</div>
 			)}
 
-			<FormSection title="Basic Info">
+			<div className="flex gap-8">
+				<MasterDataSectionNav
+					activeSection={activeSection}
+					showCrusher={showCrusher}
+					onSelect={scrollToSection}
+				/>
+
+				<div className="min-w-0 flex-1 space-y-6">
+					<FormSection id={MASTER_DATA_SECTIONS.project} title="Basic Info">
 				<div className="grid gap-4 md:grid-cols-2">
 					<LinkField
 						label="Project"
@@ -356,6 +440,7 @@ export default function MasterDataForm() {
 						onChange={handleProjectChange}
 						required
 						disabled={isReadOnly}
+						referenceDoctype={MASTER_DATA_DOCTYPE}
 						returnTo={returnPath}
 						selectField="project"
 					/>
@@ -366,12 +451,13 @@ export default function MasterDataForm() {
 						onChange={(value) => setField("company", value)}
 						required
 						disabled={isReadOnly}
+						referenceDoctype={MASTER_DATA_DOCTYPE}
 						allowCreate={false}
 					/>
 				</div>
-			</FormSection>
+					</FormSection>
 
-			<FormSection title="Taxi PO">
+					<FormSection id={MASTER_DATA_SECTIONS.taxi} title="Taxi PO">
 				<div className="mb-4 grid gap-4 md:grid-cols-2">
 					<LinkField
 						label="Taxi Supplier"
@@ -380,6 +466,7 @@ export default function MasterDataForm() {
 						onChange={(value) => setField("taxi", value)}
 						required
 						disabled={isReadOnly}
+						referenceDoctype={MASTER_DATA_DOCTYPE}
 						returnTo={returnPath}
 						selectField="taxi"
 					/>
@@ -415,6 +502,7 @@ export default function MasterDataForm() {
 								onChange={(value) => setField("taxi_petty_cash_account", value)}
 								required
 								disabled={isReadOnly}
+								referenceDoctype={MASTER_DATA_DOCTYPE}
 								allowCreate={false}
 							/>
 							<LinkField
@@ -424,6 +512,7 @@ export default function MasterDataForm() {
 								onChange={(value) => setField("taxi_petty_cash_account_head", value)}
 								required
 								disabled={isReadOnly}
+								referenceDoctype={MASTER_DATA_DOCTYPE}
 								allowCreate={false}
 							/>
 						</>
@@ -464,6 +553,7 @@ export default function MasterDataForm() {
 							disabled={isReadOnly}
 							defaultRow={{ schedule_date: doc.taxi_date || "" }}
 							itemDetailsContext={taxiItemContext}
+							referenceDoctype={MASTER_DATA_DOCTYPE}
 						/>
 					</div>
 					<div>
@@ -474,16 +564,17 @@ export default function MasterDataForm() {
 							disabled={isReadOnly}
 							showPettyCash
 							parentfield="taxi_taxes"
+							referenceDoctype={MASTER_DATA_DOCTYPE}
 						/>
 					</div>
 					<FormField label="Grand Total">
 						<CurrencyDisplay value={doc.taxi_grand_total} />
 					</FormField>
 				</div>
-			</FormSection>
+					</FormSection>
 
-			{!doc.crusher_included && (
-				<FormSection title="Crusher PO">
+					{showCrusher && (
+						<FormSection id={MASTER_DATA_SECTIONS.crusher} title="Crusher PO">
 					<div className="mb-4 grid gap-4 md:grid-cols-2">
 						<LinkField
 							label="Crusher Supplier"
@@ -492,6 +583,7 @@ export default function MasterDataForm() {
 							onChange={(value) => setField("crusher", value)}
 							required
 							disabled={isReadOnly}
+							referenceDoctype={MASTER_DATA_DOCTYPE}
 							returnTo={returnPath}
 							selectField="crusher"
 						/>
@@ -531,6 +623,7 @@ export default function MasterDataForm() {
 									onChange={(value) => setField("crusher_petty_cash_account", value)}
 									required
 									disabled={isReadOnly}
+									referenceDoctype={MASTER_DATA_DOCTYPE}
 									allowCreate={false}
 								/>
 								<LinkField
@@ -542,6 +635,7 @@ export default function MasterDataForm() {
 									}
 									required
 									disabled={isReadOnly}
+									referenceDoctype={MASTER_DATA_DOCTYPE}
 									allowCreate={false}
 								/>
 							</>
@@ -572,6 +666,7 @@ export default function MasterDataForm() {
 								disabled={isReadOnly}
 								defaultRow={{ schedule_date: doc.crusher_date || "" }}
 								itemDetailsContext={crusherItemContext}
+								referenceDoctype={MASTER_DATA_DOCTYPE}
 							/>
 						</div>
 						<div>
@@ -581,16 +676,17 @@ export default function MasterDataForm() {
 								onChange={(rows) => setField("crusher_taxes", rows)}
 								disabled={isReadOnly}
 								parentfield="crusher_taxes"
+								referenceDoctype={MASTER_DATA_DOCTYPE}
 							/>
 						</div>
 						<FormField label="Grand Total">
 							<CurrencyDisplay value={doc.crusher_grand_total} />
 						</FormField>
 					</div>
-				</FormSection>
-			)}
+						</FormSection>
+					)}
 
-			<FormSection title="Delivery Order">
+					<FormSection id={MASTER_DATA_SECTIONS.customer} title="Delivery Order">
 				<div className="mb-4 grid gap-4 md:grid-cols-3">
 					<LinkField
 						label="Customer"
@@ -599,6 +695,7 @@ export default function MasterDataForm() {
 						onChange={(value) => setField("customer", value)}
 						required
 						disabled={isReadOnly}
+						referenceDoctype={MASTER_DATA_DOCTYPE}
 						returnTo={returnPath}
 						selectField="customer"
 					/>
@@ -657,6 +754,7 @@ export default function MasterDataForm() {
 							childDoctype="Delivery Note Item"
 							disabled={isReadOnly}
 							itemDetailsContext={deliveryItemContext}
+							referenceDoctype={MASTER_DATA_DOCTYPE}
 						/>
 					</div>
 					<div>
@@ -666,13 +764,16 @@ export default function MasterDataForm() {
 							onChange={(rows) => setField("taxes", rows)}
 							disabled={isReadOnly}
 							parentfield="taxes"
+							referenceDoctype={MASTER_DATA_DOCTYPE}
 						/>
 					</div>
 					<FormField label="Grand Total">
 						<CurrencyDisplay value={doc.do_grand_total} />
 					</FormField>
 				</div>
-			</FormSection>
+					</FormSection>
+				</div>
+			</div>
 		</div>
 	);
 }

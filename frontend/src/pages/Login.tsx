@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FrappeApiError } from "@/lib/frappe-api";
 import { useAuth } from "@/lib/auth";
-import iconUrl from "@/assets/icon.svg";
+import logoFullUrl from "@/assets/logo-full.png";
 
 export default function Login() {
 	const navigate = useNavigate();
@@ -38,13 +38,14 @@ export default function Login() {
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-emerald-950 px-4">
 			<div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
-				<div className="mb-6 flex items-center gap-3">
-					<img src={iconUrl} alt="Green Wheels" className="h-10 w-10 rounded-lg" />
-					<div>
-						<h1 className="text-lg font-semibold text-gray-900">Green Wheels</h1>
-						<p className="text-sm text-gray-500">Sign in to continue</p>
-					</div>
+				<div className="mb-6 flex justify-center">
+					<img
+						src={logoFullUrl}
+						alt="Green Wheels Transport and General Contracting"
+						className="h-14 w-full max-w-sm object-contain"
+					/>
 				</div>
+				<p className="mb-6 text-center text-sm text-gray-500">Sign in to continue</p>
 
 				<form className="flex flex-col space-y-4" onSubmit={submit}>
 					<div>

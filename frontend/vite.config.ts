@@ -8,6 +8,18 @@ const FRAPPE_ASSET_BASE = "/assets/greenwheels/greenwheels/";
 const DEV_BASE = "/greenwheels/";
 const OUT_DIR = path.resolve(__dirname, "../greenwheels/public/greenwheels");
 const WWW_HTML = path.resolve(__dirname, "../greenwheels/www/greenwheels.html");
+const SRC_ASSETS = path.resolve(__dirname, "src/assets");
+
+function copyBrandAssets(): Plugin {
+	return {
+		name: "copy-brand-assets",
+		closeBundle() {
+			for (const file of ["logo.png", "logo-full.png"]) {
+				fs.copyFileSync(path.join(SRC_ASSETS, file), path.join(OUT_DIR, file));
+			}
+		},
+	};
+}
 
 function redirectToApp() {
 	return {
@@ -47,7 +59,7 @@ safe_render: false
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<link rel="icon" href="${FRAPPE_ASSET_BASE}icon.svg" />
+		<link rel="icon" href="${FRAPPE_ASSET_BASE}logo.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Green Wheels</title>
 	</head>
@@ -69,7 +81,12 @@ safe_render: false
 
 export default defineConfig(({ command }) => ({
 	base: command === "serve" ? DEV_BASE : FRAPPE_ASSET_BASE,
-	plugins: [redirectToApp(), react(), command === "build" ? writeFrappeWwwHtml() : null].filter(Boolean),
+	plugins: [
+		redirectToApp(),
+		react(),
+		command === "build" ? copyBrandAssets() : null,
+		command === "build" ? writeFrappeWwwHtml() : null,
+	].filter(Boolean),
 	define: {
 		__SITE_NAME__: JSON.stringify(default_site),
 	},

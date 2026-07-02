@@ -80,20 +80,41 @@ export interface SearchLinkResult {
 	description?: string;
 }
 
+export interface SearchLinkOptions {
+	filters?: Record<string, unknown>;
+	query?: string;
+	pageLength?: number;
+	referenceDoctype?: string;
+	ignoreUserPermissions?: boolean;
+}
+
 export async function searchLink(
 	doctype: string,
 	txt: string,
-	filters?: Record<string, unknown>,
-	query?: string,
+	options: SearchLinkOptions = {},
 ): Promise<SearchLinkResult[]> {
+	const {
+		filters,
+		query,
+		pageLength = 10,
+		referenceDoctype,
+		ignoreUserPermissions = false,
+	} = options;
+
 	const params: Record<string, unknown> = {
 		doctype,
 		txt,
 		filters: filters ?? {},
+		page_length: pageLength,
+		ignore_user_permissions: ignoreUserPermissions ? 1 : 0,
 	};
 	if (query) {
 		params.query = query;
 	}
+	if (referenceDoctype) {
+		params.reference_doctype = referenceDoctype;
+	}
+
 	const results = await frappeCall<SearchLinkResult[]>("frappe.desk.search.search_link", params);
 	return Array.isArray(results) ? results : [];
 }

@@ -2,13 +2,18 @@ import { statusClass, statusLabel } from "@/lib/utils";
 
 export function FormSection({
 	title,
+	id,
 	children,
 }: {
 	title: string;
+	id?: string;
 	children: React.ReactNode;
 }) {
 	return (
-		<section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+		<section
+			id={id}
+			className="scroll-mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+		>
 			<h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
 				{title}
 			</h2>

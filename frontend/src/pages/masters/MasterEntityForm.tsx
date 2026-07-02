@@ -175,6 +175,7 @@ export default function MasterEntityForm() {
 									value={String(doc[field.name] || "")}
 									onChange={(value) => setField(field.name, value)}
 									required={field.required}
+									referenceDoctype={config.doctype}
 									allowCreate={false}
 								/>
 							);

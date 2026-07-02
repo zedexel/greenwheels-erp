@@ -8,6 +8,7 @@ interface TaxesTableProps {
 	disabled?: boolean;
 	showPettyCash?: boolean;
 	parentfield: string;
+	referenceDoctype?: string;
 }
 
 const CHARGE_TYPES = ["On Net Total", "Actual", "On Previous Row Amount", "On Previous Row Total"];
@@ -18,6 +19,7 @@ export default function TaxesTable({
 	disabled,
 	showPettyCash,
 	parentfield,
+	referenceDoctype,
 }: TaxesTableProps) {
 	function updateRow(index: number, key: string, cellValue: unknown) {
 		const rows = [...value];
@@ -163,6 +165,8 @@ export default function TaxesTable({
 											onChange={(v) => handleAccountHeadChange(index, v)}
 											disabled={disabled}
 											allowCreate={false}
+											referenceDoctype={referenceDoctype}
+											dropdownPlacement="above"
 										/>
 									</td>
 									<td className="px-3 py-2 align-top">

@@ -14,7 +14,7 @@ app_license = "mit"
 add_to_apps_screen = [
 	{
 		"name": "greenwheels",
-		"logo": "/assets/greenwheels/greenwheels/icon.svg",
+		"logo": "/assets/greenwheels/greenwheels/logo.png",
 		"title": "Green Wheels",
 		"route": "/greenwheels",
 		"has_permission": "greenwheels.api.permission.has_app_permission",
