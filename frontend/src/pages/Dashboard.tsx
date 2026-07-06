@@ -1,5 +1,14 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import KpiGrid from "@/components/dashboard/KpiGrid";
+import MonthRangeFilter from "@/components/dashboard/MonthRangeFilter";
+import SupplierActivityTable from "@/components/dashboard/SupplierActivityTable";
+import TopPerformersTable from "@/components/dashboard/TopPerformersTable";
+import TrendChart from "@/components/dashboard/TrendChart";
+import { ValidationBanner } from "@/components/FormSection";
 import { useFrappeMethod } from "@/hooks/useFrappeMethod";
+import type { DashboardAnalytics } from "@/lib/dashboard";
+import { getCurrentYearMonth, getMonthRange } from "@/lib/dashboard";
 import { statusClass, statusLabel, type MasterDataRow } from "@/lib/utils";
 
 function StatCard({
@@ -22,6 +31,10 @@ function StatCard({
 }
 
 export default function Dashboard() {
+	const [yearMonth, setYearMonth] = useState(getCurrentYearMonth);
+	const [fromDate, setFromDate] = useState(() => getMonthRange(getCurrentYearMonth()).from_date);
+	const [toDate, setToDate] = useState(() => getMonthRange(getCurrentYearMonth()).to_date);
+
 	const { data: recent, isLoading: recentLoading } = useFrappeMethod<MasterDataRow[]>(
 		"frappe.client.get_list",
 		{
@@ -57,7 +70,45 @@ export default function Dashboard() {
 		"dashboard-submitted-count",
 	);
 
+	const analyticsParams = useMemo(
+		() => ({
+			from_date: fromDate,
+			to_date: toDate,
+		}),
+		[fromDate, toDate],
+	);
+
+	const {
+		data: analytics,
+		isLoading: analyticsLoading,
+		error: analyticsError,
+	} = useFrappeMethod<DashboardAnalytics>(
+		"greenwheels.api.dashboard.get_dashboard_analytics",
+		analyticsParams,
+		`dashboard-analytics-${fromDate}-${toDate}`,
+	);
+
+	useEffect(() => {
+		const range = getMonthRange(yearMonth);
+		setFromDate(range.from_date);
+		setToDate(range.to_date);
+	}, [yearMonth]);
+
 	const recentRows = Array.isArray(recent) ? recent : [];
+
+	const handleFromDateChange = (value: string) => {
+		setFromDate(value);
+		if (value.slice(0, 7) === toDate.slice(0, 7)) {
+			setYearMonth(value.slice(0, 7));
+		}
+	};
+
+	const handleToDateChange = (value: string) => {
+		setToDate(value);
+		if (fromDate.slice(0, 7) === value.slice(0, 7)) {
+			setYearMonth(value.slice(0, 7));
+		}
+	};
 
 	return (
 		<div className="space-y-6">
@@ -71,6 +122,85 @@ export default function Dashboard() {
 				/>
 				<StatCard label="Welcome" value="Green Wheels" />
 			</div>
+
+			<MonthRangeFilter
+				yearMonth={yearMonth}
+				fromDate={fromDate}
+				toDate={toDate}
+				onYearMonthChange={setYearMonth}
+				onFromDateChange={handleFromDateChange}
+				onToDateChange={handleToDateChange}
+			/>
+
+			{analyticsError ? <ValidationBanner errors={[analyticsError]} /> : null}
+
+			<KpiGrid summary={analytics?.summary ?? null} loading={analyticsLoading} />
+
+			<TrendChart data={analytics?.monthly_trend ?? []} loading={analyticsLoading} />
+
+			<div className="grid gap-6 lg:grid-cols-2">
+				<TopPerformersTable
+					title="Top Taxi Suppliers"
+					emptyMessage="No taxi supplier activity in this period."
+					nameHeader="Supplier"
+					countHeader="Orders"
+					amountHeader="Taxi Spend"
+					loading={analyticsLoading}
+					rows={(analytics?.top_taxi_suppliers ?? []).map((row) => ({
+						key: row.supplier,
+						name: row.supplier_name,
+						count: row.order_count,
+						amount: row.total_amount,
+					}))}
+				/>
+				<TopPerformersTable
+					title="Top Crusher Suppliers"
+					emptyMessage="No crusher supplier activity in this period."
+					nameHeader="Supplier"
+					countHeader="Orders"
+					amountHeader="Crusher Spend"
+					loading={analyticsLoading}
+					rows={(analytics?.top_crusher_suppliers ?? []).map((row) => ({
+						key: row.supplier,
+						name: row.supplier_name,
+						count: row.order_count,
+						amount: row.total_amount,
+					}))}
+				/>
+				<TopPerformersTable
+					title="Top Projects"
+					emptyMessage="No project activity in this period."
+					nameHeader="Project"
+					countHeader="Transactions"
+					amountHeader="Sales"
+					loading={analyticsLoading}
+					rows={(analytics?.top_projects ?? []).map((row) => ({
+						key: row.project,
+						name: row.project_name,
+						count: row.transaction_count,
+						amount: row.sales_total,
+					}))}
+				/>
+				<TopPerformersTable
+					title="Top Customers"
+					emptyMessage="No customer deliveries in this period."
+					nameHeader="Customer"
+					countHeader="Deliveries"
+					amountHeader="Sales"
+					loading={analyticsLoading}
+					rows={(analytics?.top_customers ?? []).map((row) => ({
+						key: row.customer,
+						name: row.customer_name,
+						count: row.delivery_count,
+						amount: row.sales_total,
+					}))}
+				/>
+			</div>
+
+			<SupplierActivityTable
+				rows={analytics?.supplier_activity ?? []}
+				loading={analyticsLoading}
+			/>
 
 			<div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
 				<h2 className="text-base font-semibold text-gray-900">Welcome back</h2>

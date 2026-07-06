@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { frappeCall } from "@/lib/frappe-api";
 
 interface UseFrappeMethodResult<T> {
@@ -16,6 +16,7 @@ export function useFrappeMethod<T>(
 	const [data, setData] = useState<T | null>(null);
 	const [isLoading, setIsLoading] = useState(enabled);
 	const [error, setError] = useState<string | null>(null);
+	const paramsKey = useMemo(() => JSON.stringify(params), [params]);
 
 	useEffect(() => {
 		if (!enabled) {
@@ -48,7 +49,7 @@ export function useFrappeMethod<T>(
 		return () => {
 			cancelled = true;
 		};
-	}, [method, cacheKey, enabled]);
+	}, [method, cacheKey, enabled, paramsKey]);
 
 	return { data, isLoading, error };
 }
