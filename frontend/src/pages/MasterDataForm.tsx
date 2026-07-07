@@ -18,18 +18,18 @@ import MasterDataSectionNav, {
 import TaxesTable from "@/components/TaxesTable";
 import { frappeCall } from "@/lib/frappe-api";
 import {
-	calculateMasterDataTotals,
+	applyPoSectionTotals,
+	computePoSectionGrandTotal,
 	DN_ITEM_COLUMNS,
 	emptyMasterDataDoc,
 	fetchProjectName,
-	getCalculableSnapshot,
-	hasCalculableMasterDataContent,
-	mergeMasterDataTotals,
 	PO_ITEM_COLUMNS,
 	saveMasterData,
 	submitMasterData,
 	validateMasterData,
+	type LineItemRow,
 	type MasterDataDoc,
+	type TaxRow,
 } from "@/lib/master-data";
 
 interface LocationState {
@@ -52,10 +52,6 @@ export default function MasterDataForm() {
 	const [submitting, setSubmitting] = useState(false);
 	const [validationErrors, setValidationErrors] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
-	const calcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const isApplyingTotalsRef = useRef(false);
-	const calcRequestIdRef = useRef(0);
-	const lastCalcSnapshotRef = useRef("");
 	const isScrollingRef = useRef(false);
 
 	const [activeSection, setActiveSection] = useState<MasterDataSectionId>(
@@ -104,6 +100,85 @@ export default function MasterDataForm() {
 		setDoc((prev) => ({ ...prev, [field]: value }));
 	}, []);
 
+	const setTaxiItems = useCallback((rows: LineItemRow[]) => {
+		setDoc((prev) => {
+			const totals = applyPoSectionTotals(rows, prev.taxi_taxes);
+			return {
+				...prev,
+				taxi_items: totals.items,
+				taxi_taxes: totals.taxes,
+				taxi_grand_total: totals.grandTotal,
+			};
+		});
+	}, []);
+
+	const setCrusherItems = useCallback((rows: LineItemRow[]) => {
+		setDoc((prev) => {
+			const totals = applyPoSectionTotals(rows, prev.crusher_taxes);
+			return {
+				...prev,
+				crusher_items: totals.items,
+				crusher_taxes: totals.taxes,
+				crusher_grand_total: totals.grandTotal,
+			};
+		});
+	}, []);
+
+	const setTaxiTaxes = useCallback((rows: TaxRow[]) => {
+		setDoc((prev) => {
+			const totals = applyPoSectionTotals(prev.taxi_items, rows);
+			return {
+				...prev,
+				taxi_items: totals.items,
+				taxi_taxes: totals.taxes,
+				taxi_grand_total: totals.grandTotal,
+			};
+		});
+	}, []);
+
+	const setCrusherTaxes = useCallback((rows: TaxRow[]) => {
+		setDoc((prev) => {
+			const totals = applyPoSectionTotals(prev.crusher_items, rows);
+			return {
+				...prev,
+				crusher_items: totals.items,
+				crusher_taxes: totals.taxes,
+				crusher_grand_total: totals.grandTotal,
+			};
+		});
+	}, []);
+
+	const setDeliveryItems = useCallback((rows: LineItemRow[]) => {
+		setDoc((prev) => ({
+			...prev,
+			items: rows,
+			do_grand_total: computePoSectionGrandTotal(rows, prev.taxes),
+		}));
+	}, []);
+
+	const setDeliveryTaxes = useCallback((rows: TaxRow[]) => {
+		setDoc((prev) => ({
+			...prev,
+			taxes: rows,
+			do_grand_total: computePoSectionGrandTotal(prev.items, rows),
+		}));
+	}, []);
+
+	const taxiGrandTotal = useMemo(
+		() => computePoSectionGrandTotal(doc.taxi_items, doc.taxi_taxes),
+		[doc.taxi_items, doc.taxi_taxes],
+	);
+
+	const crusherGrandTotal = useMemo(
+		() => computePoSectionGrandTotal(doc.crusher_items, doc.crusher_taxes),
+		[doc.crusher_items, doc.crusher_taxes],
+	);
+
+	const deliveryGrandTotal = useMemo(
+		() => computePoSectionGrandTotal(doc.items, doc.taxes),
+		[doc.items, doc.taxes],
+	);
+
 	useEffect(() => {
 		const state = location.state as LocationState | null;
 		if (state?.selectField && state?.selectedValue) {
@@ -146,62 +221,6 @@ export default function MasterDataForm() {
 			})
 			.finally(() => setLoading(false));
 	}, [isCreate, name]);
-
-	const recalculateTotals = useCallback((currentDoc: MasterDataDoc) => {
-		if (!hasCalculableMasterDataContent(currentDoc)) {
-			lastCalcSnapshotRef.current = "";
-			return;
-		}
-
-		const snapshot = getCalculableSnapshot(currentDoc);
-		if (snapshot === lastCalcSnapshotRef.current) {
-			return;
-		}
-
-		if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
-		const requestId = ++calcRequestIdRef.current;
-
-		calcTimerRef.current = setTimeout(async () => {
-			try {
-				const updated = await calculateMasterDataTotals(currentDoc);
-				if (requestId !== calcRequestIdRef.current) return;
-
-				lastCalcSnapshotRef.current = snapshot;
-				isApplyingTotalsRef.current = true;
-				setDoc((prev) => mergeMasterDataTotals(prev, updated));
-			} catch {
-				// Totals preview is best-effort while editing
-			}
-		}, 400);
-	}, []);
-
-	useEffect(() => {
-		if (loading || isReadOnly) return;
-		if (isApplyingTotalsRef.current) {
-			isApplyingTotalsRef.current = false;
-			return;
-		}
-		recalculateTotals(doc);
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- recalc on table/tax changes only
-	}, [
-		doc.taxi_items,
-		doc.crusher_items,
-		doc.items,
-		doc.taxi_taxes,
-		doc.crusher_taxes,
-		doc.taxes,
-		doc.crusher_included,
-		doc.company,
-		doc.taxi,
-		doc.taxi_date,
-		doc.crusher,
-		doc.crusher_date,
-		doc.customer,
-		doc.date,
-		loading,
-		isReadOnly,
-		recalculateTotals,
-	]);
 
 	const scrollToSection = useCallback((sectionId: MasterDataSectionId) => {
 		setActiveSection(sectionId);
@@ -295,10 +314,27 @@ export default function MasterDataForm() {
 		setValidationErrors(errors);
 		if (errors.length) return;
 
+		const taxiTotals = applyPoSectionTotals(doc.taxi_items, doc.taxi_taxes);
+		const crusherTotals = applyPoSectionTotals(doc.crusher_items, doc.crusher_taxes);
+		const deliveryTotals = applyPoSectionTotals(doc.items, doc.taxes);
+
+		const docToSave: MasterDataDoc = {
+			...doc,
+			taxi_items: taxiTotals.items,
+			taxi_taxes: taxiTotals.taxes,
+			taxi_grand_total: taxiTotals.grandTotal,
+			crusher_items: crusherTotals.items,
+			crusher_taxes: crusherTotals.taxes,
+			crusher_grand_total: crusherTotals.grandTotal,
+			items: deliveryTotals.items,
+			taxes: deliveryTotals.taxes,
+			do_grand_total: deliveryTotals.grandTotal,
+		};
+
 		setSaving(true);
 		setError(null);
 		try {
-			const saved = await saveMasterData(doc);
+			const saved = await saveMasterData(docToSave);
 			setDoc((prev) => ({ ...prev, ...saved }));
 			if (isCreate && saved.name) {
 				navigate(`/master-data/${encodeURIComponent(saved.name)}`, { replace: true });
@@ -547,7 +583,7 @@ export default function MasterDataForm() {
 						</p>
 						<LineItemsTable
 							value={doc.taxi_items}
-							onChange={(rows) => setField("taxi_items", rows)}
+							onChange={setTaxiItems}
 							columns={PO_ITEM_COLUMNS}
 							childDoctype="Purchase Order Item"
 							disabled={isReadOnly}
@@ -560,7 +596,7 @@ export default function MasterDataForm() {
 						<p className="mb-2 text-sm font-medium text-gray-700">Taxes</p>
 						<TaxesTable
 							value={doc.taxi_taxes}
-							onChange={(rows) => setField("taxi_taxes", rows)}
+							onChange={setTaxiTaxes}
 							disabled={isReadOnly}
 							showPettyCash
 							parentfield="taxi_taxes"
@@ -568,7 +604,7 @@ export default function MasterDataForm() {
 						/>
 					</div>
 					<FormField label="Grand Total">
-						<CurrencyDisplay value={doc.taxi_grand_total} />
+						<CurrencyDisplay value={taxiGrandTotal} />
 					</FormField>
 				</div>
 					</FormSection>
@@ -660,7 +696,7 @@ export default function MasterDataForm() {
 							</p>
 							<LineItemsTable
 								value={doc.crusher_items}
-								onChange={(rows) => setField("crusher_items", rows)}
+								onChange={setCrusherItems}
 								columns={PO_ITEM_COLUMNS}
 								childDoctype="Purchase Order Item"
 								disabled={isReadOnly}
@@ -673,14 +709,14 @@ export default function MasterDataForm() {
 							<p className="mb-2 text-sm font-medium text-gray-700">Taxes</p>
 							<TaxesTable
 								value={doc.crusher_taxes}
-								onChange={(rows) => setField("crusher_taxes", rows)}
+								onChange={setCrusherTaxes}
 								disabled={isReadOnly}
 								parentfield="crusher_taxes"
 								referenceDoctype={MASTER_DATA_DOCTYPE}
 							/>
 						</div>
 						<FormField label="Grand Total">
-							<CurrencyDisplay value={doc.crusher_grand_total} />
+							<CurrencyDisplay value={crusherGrandTotal} />
 						</FormField>
 					</div>
 						</FormSection>
@@ -749,7 +785,7 @@ export default function MasterDataForm() {
 						</p>
 						<LineItemsTable
 							value={doc.items}
-							onChange={(rows) => setField("items", rows)}
+							onChange={setDeliveryItems}
 							columns={DN_ITEM_COLUMNS}
 							childDoctype="Delivery Note Item"
 							disabled={isReadOnly}
@@ -761,14 +797,14 @@ export default function MasterDataForm() {
 						<p className="mb-2 text-sm font-medium text-gray-700">Taxes</p>
 						<TaxesTable
 							value={doc.taxes}
-							onChange={(rows) => setField("taxes", rows)}
+							onChange={setDeliveryTaxes}
 							disabled={isReadOnly}
 							parentfield="taxes"
 							referenceDoctype={MASTER_DATA_DOCTYPE}
 						/>
 					</div>
 					<FormField label="Grand Total">
-						<CurrencyDisplay value={doc.do_grand_total} />
+						<CurrencyDisplay value={deliveryGrandTotal} />
 					</FormField>
 				</div>
 					</FormSection>

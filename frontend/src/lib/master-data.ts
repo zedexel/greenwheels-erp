@@ -319,36 +319,6 @@ export function getCalculableSnapshot(doc: MasterDataDoc): string {
 	});
 }
 
-function mergeItemRows(prevItems: LineItemRow[], updatedItems: LineItemRow[]): LineItemRow[] {
-	let changed = false;
-	const merged = prevItems.map((row, index) => {
-		const calc = updatedItems[index];
-		if (!calc) return row;
-
-		const next = {
-			...row,
-			amount: calc.amount,
-			net_amount: calc.net_amount,
-			uom: calc.uom || row.uom,
-			item_name: calc.item_name || row.item_name,
-		};
-
-		if (
-			row.amount === next.amount &&
-			row.net_amount === next.net_amount &&
-			row.uom === next.uom &&
-			row.item_name === next.item_name
-		) {
-			return row;
-		}
-
-		changed = true;
-		return next;
-	});
-
-	return changed ? merged : prevItems;
-}
-
 function mergeTaxRows(prevTaxes: TaxRow[], updatedTaxes: TaxRow[]): TaxRow[] {
 	let changed = false;
 	const merged = prevTaxes.map((row, index) => {
@@ -372,24 +342,6 @@ function mergeTaxRows(prevTaxes: TaxRow[], updatedTaxes: TaxRow[]): TaxRow[] {
 	return changed ? merged : prevTaxes;
 }
 
-export function mergeMasterDataTotals(
-	prev: MasterDataDoc,
-	updated: MasterDataDoc,
-): MasterDataDoc {
-	return {
-		...prev,
-		taxi_grand_total: updated.taxi_grand_total,
-		crusher_grand_total: updated.crusher_grand_total,
-		do_grand_total: updated.do_grand_total,
-		taxi_items: mergeItemRows(prev.taxi_items || [], updated.taxi_items || []),
-		crusher_items: mergeItemRows(prev.crusher_items || [], updated.crusher_items || []),
-		items: mergeItemRows(prev.items || [], updated.items || []),
-		taxi_taxes: mergeTaxRows(prev.taxi_taxes || [], updated.taxi_taxes || []),
-		crusher_taxes: mergeTaxRows(prev.crusher_taxes || [], updated.crusher_taxes || []),
-		taxes: mergeTaxRows(prev.taxes || [], updated.taxes || []),
-	};
-}
-
 export async function fetchTaxRate(accountHead: string): Promise<TaxRateDetails | null> {
 	if (!accountHead) return null;
 
@@ -411,23 +363,47 @@ export async function fetchProjectName(project: string): Promise<string | null> 
 	return value?.project_name || null;
 }
 
+const companyCurrencyCache = new Map<string, string>();
+
+export async function fetchCompanyCurrency(company: string): Promise<string | null> {
+	if (!company) return null;
+
+	const cached = companyCurrencyCache.get(company);
+	if (cached) return cached;
+
+	const value = await frappeCall<{ default_currency?: string }>("frappe.client.get_value", {
+		doctype: "Company",
+		filters: { name: company },
+		fieldname: "default_currency",
+	});
+	const currency = value?.default_currency || null;
+	if (currency) {
+		companyCurrencyCache.set(company, currency);
+	}
+	return currency;
+}
+
 function applyItemAmounts(row: LineItemRow): LineItemRow {
 	const qty = Number(row.qty) || 0;
 	const rate = Number(row.rate) || 0;
 	const discountAmount = Number(row.discount_amount) || 0;
+	const amount = qty * rate;
+	const netAmount = amount - discountAmount;
 
-	row.amount = qty * rate;
-	row.base_amount = row.amount;
-	row.base_rate = rate;
-	row.net_amount = (row.amount ?? 0) - discountAmount;
-	row.base_net_amount = row.net_amount;
-
-	return row;
+	return {
+		...row,
+		amount,
+		base_amount: amount,
+		base_rate: rate,
+		net_amount: netAmount,
+		base_net_amount: netAmount,
+	};
 }
 
 function applyItemDetailsToRow(
 	row: LineItemRow,
 	itemDetails: Record<string, unknown>,
+	options: { refreshFromItem?: boolean } = {},
 ): LineItemRow {
 	const updated = { ...row };
 
@@ -443,20 +419,53 @@ function applyItemDetailsToRow(
 		updated.conversion_factor = 1;
 	}
 
-	if (itemDetails.uom && !updated.uom) {
+	if (itemDetails.uom) {
 		updated.uom = String(itemDetails.uom);
 	}
 
-	if (itemDetails.stock_uom && !updated.stock_uom) {
+	if (itemDetails.stock_uom) {
 		updated.stock_uom = String(itemDetails.stock_uom);
 	}
 
-	if (!updated.rate || Number(updated.rate) === 0) {
+	if (options.refreshFromItem || !updated.rate || Number(updated.rate) === 0) {
 		updated.rate =
-			(itemDetails.price_list_rate as number) || (itemDetails.rate as number) || 0;
+			Number(itemDetails.price_list_rate) ||
+			Number(itemDetails.rate) ||
+			Number(itemDetails.last_purchase_rate) ||
+			0;
+	}
+
+	// Frappe item_code handler uses qty || 1 when first loading item details
+	if (options.refreshFromItem) {
+		const qty = Number(updated.qty) || 1;
+		const rate = Number(updated.rate) || 0;
+		const discountAmount = Number(updated.discount_amount) || 0;
+		const amount = qty * rate;
+		return {
+			...updated,
+			amount,
+			base_amount: amount,
+			base_rate: rate,
+			net_amount: amount - discountAmount,
+			base_net_amount: amount - discountAmount,
+		};
 	}
 
 	return applyItemAmounts(updated);
+}
+
+export function resetLineItemForNewItemCode(row: LineItemRow, itemCode: string): LineItemRow {
+	return {
+		...row,
+		item_code: itemCode,
+		item_name: undefined,
+		uom: undefined,
+		stock_uom: undefined,
+		rate: undefined,
+		amount: undefined,
+		net_amount: undefined,
+		conversion_factor: undefined,
+	};
 }
 
 export async function fetchPurchaseItemDetails(
@@ -466,7 +475,9 @@ export async function fetchPurchaseItemDetails(
 	const { company, supplier, transactionDate } = context;
 	if (!company || !supplier || !row.item_code) return row;
 
-	const itemDetails = await frappeCall<Record<string, unknown>>(
+	const currency = (await fetchCompanyCurrency(company)) || undefined;
+
+	const itemDetails = await frappePost<Record<string, unknown>>(
 		"erpnext.stock.get_item_details.get_item_details",
 		{
 			doc: {
@@ -474,6 +485,7 @@ export async function fetchPurchaseItemDetails(
 				company,
 				supplier,
 				transaction_date: transactionDate,
+				currency,
 				conversion_rate: 1,
 				buying_price_list: null,
 				ignore_pricing_rule: 1,
@@ -483,20 +495,19 @@ export async function fetchPurchaseItemDetails(
 				company,
 				supplier,
 				transaction_date: transactionDate,
+				currency,
 				conversion_rate: 1,
 				buying_price_list: null,
-				price_list_currency: null,
+				price_list_currency: currency ?? null,
 				plc_conversion_rate: 1,
 				ignore_pricing_rule: 1,
 				doctype: "Purchase Order",
 				qty: row.qty || 1,
-				uom: row.uom,
-				conversion_factor: row.conversion_factor,
 			},
 		},
 	);
 
-	return applyItemDetailsToRow(row, itemDetails || {});
+	return applyItemDetailsToRow(row, itemDetails || {}, { refreshFromItem: true });
 }
 
 export async function fetchDeliveryItemDetails(
@@ -541,6 +552,99 @@ export async function fetchDeliveryItemDetails(
 
 export function recalculateRowAmounts(row: LineItemRow): LineItemRow {
 	return applyItemAmounts({ ...row });
+}
+
+/** Client-side PO section totals — mirrors master_data.js qty/rate handlers + tax fallback. */
+export function applyPoSectionTotals(
+	items: LineItemRow[],
+	taxes: TaxRow[] = [],
+): { items: LineItemRow[]; taxes: TaxRow[]; grandTotal: number } {
+	const calculatedItems = (items || []).map((row) => recalculateRowAmounts(row));
+
+	const netTotal = calculatedItems.reduce(
+		(sum, row) => sum + (Number(row.net_amount) || Number(row.amount) || 0),
+		0,
+	);
+
+	let grandTotal = netTotal;
+	const calculatedTaxes = (taxes || []).map((tax) => ({ ...tax }));
+
+	for (const tax of calculatedTaxes) {
+		let taxAmount = 0;
+
+		if (tax.charge_type === "On Net Total") {
+			taxAmount = ((Number(tax.rate) || 0) / 100) * netTotal;
+		} else if (tax.charge_type === "Actual") {
+			taxAmount = Number(tax.tax_amount) || 0;
+		}
+
+		tax.tax_amount = taxAmount;
+		grandTotal += taxAmount;
+		tax.total = grandTotal;
+	}
+
+	return { items: calculatedItems, taxes: calculatedTaxes, grandTotal };
+}
+
+export function computePoSectionGrandTotal(
+	items: LineItemRow[],
+	taxes: TaxRow[] = [],
+): number {
+	return applyPoSectionTotals(items, taxes).grandTotal;
+}
+
+function mergeItemRows(prevItems: LineItemRow[], updatedItems: LineItemRow[]): LineItemRow[] {
+	let changed = false;
+	const merged = prevItems.map((row, index) => {
+		const calc = updatedItems[index];
+		if (!calc) return row;
+
+		const localAmounts = recalculateRowAmounts({ ...row });
+		const next = {
+			...row,
+			amount: localAmounts.amount,
+			net_amount: localAmounts.net_amount,
+			uom: row.uom || calc.uom,
+			item_name: calc.item_name || row.item_name,
+		};
+
+		if (
+			row.amount === next.amount &&
+			row.net_amount === next.net_amount &&
+			row.uom === next.uom &&
+			row.item_name === next.item_name
+		) {
+			return row;
+		}
+
+		changed = true;
+		return next;
+	});
+
+	return changed ? merged : prevItems;
+}
+
+export function mergeMasterDataTotals(
+	prev: MasterDataDoc,
+	updated: MasterDataDoc,
+): MasterDataDoc {
+	const taxiItems = mergeItemRows(prev.taxi_items || [], updated.taxi_items || []);
+	const crusherItems = mergeItemRows(prev.crusher_items || [], updated.crusher_items || []);
+	const taxiTaxes = mergeTaxRows(prev.taxi_taxes || [], updated.taxi_taxes || []);
+	const crusherTaxes = mergeTaxRows(prev.crusher_taxes || [], updated.crusher_taxes || []);
+
+	return {
+		...prev,
+		taxi_items: taxiItems,
+		crusher_items: crusherItems,
+		items: mergeItemRows(prev.items || [], updated.items || []),
+		taxi_taxes: taxiTaxes,
+		crusher_taxes: crusherTaxes,
+		taxes: mergeTaxRows(prev.taxes || [], updated.taxes || []),
+		taxi_grand_total: computePoSectionGrandTotal(taxiItems, taxiTaxes),
+		crusher_grand_total: computePoSectionGrandTotal(crusherItems, crusherTaxes),
+		do_grand_total: updated.do_grand_total,
+	};
 }
 
 export async function saveMasterData(doc: MasterDataDoc): Promise<MasterDataDoc> {
