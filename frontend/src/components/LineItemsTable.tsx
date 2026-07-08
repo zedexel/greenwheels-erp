@@ -34,6 +34,26 @@ function getReadonlyValue(row: LineItemRow, column: LineItemColumn): string | nu
 	return row[column.key as keyof LineItemRow] as string | number | undefined;
 }
 
+function getLinkFilters(
+	row: LineItemRow,
+	column: LineItemColumn,
+): Record<string, unknown> | undefined {
+	if (column.key === "uom" && row.item_code) {
+		return { item_code: row.item_code };
+	}
+	return column.linkFilters;
+}
+
+function isLinkDisabled(
+	row: LineItemRow,
+	column: LineItemColumn,
+	disabled?: boolean,
+): boolean {
+	if (disabled) return true;
+	if (column.key === "uom" && !row.item_code) return true;
+	return false;
+}
+
 export default function LineItemsTable({
 	value,
 	onChange,
@@ -48,6 +68,44 @@ export default function LineItemsTable({
 	const valueRef = useRef(value);
 	valueRef.current = value;
 	const itemFetchRequestRef = useRef<Record<number, number>>({});
+
+	async function refetchItemDetails(
+		index: number,
+		row: LineItemRow,
+		options: { refreshFromItem?: boolean; updateRate?: boolean },
+	) {
+		const requestId = (itemFetchRequestRef.current[index] || 0) + 1;
+		itemFetchRequestRef.current[index] = requestId;
+
+		let fetched: LineItemRow;
+		if (childDoctype === "Purchase Order Item") {
+			fetched = await fetchPurchaseItemDetails(
+				row,
+				{
+					company: itemDetailsContext.company as string,
+					supplier: itemDetailsContext.supplier as string,
+					transactionDate: itemDetailsContext.transactionDate as string,
+				},
+				options,
+			);
+		} else {
+			fetched = await fetchDeliveryItemDetails(
+				row,
+				{
+					company: itemDetailsContext.company as string,
+					customer: itemDetailsContext.customer as string,
+					postingDate: itemDetailsContext.postingDate as string,
+				},
+				options,
+			);
+		}
+
+		if (itemFetchRequestRef.current[index] !== requestId) return;
+
+		const latestRows = [...valueRef.current];
+		latestRows[index] = fetched;
+		onChange(latestRows);
+	}
 
 	async function updateRow(index: number, key: string, cellValue: unknown) {
 		const rows = [...valueRef.current];
@@ -72,23 +130,10 @@ export default function LineItemsTable({
 					return;
 				}
 
-				const requestId = (itemFetchRequestRef.current[index] || 0) + 1;
-				itemFetchRequestRef.current[index] = requestId;
-
 				rows[index] = resetLineItemForNewItemCode(rows[index], String(cellValue));
 				onChange(rows);
 
-				const fetched = await fetchPurchaseItemDetails(rows[index], {
-					company,
-					supplier,
-					transactionDate: itemDetailsContext.transactionDate as string,
-				});
-
-				if (itemFetchRequestRef.current[index] !== requestId) return;
-
-				const latestRows = [...valueRef.current];
-				latestRows[index] = fetched;
-				onChange(latestRows);
+				await refetchItemDetails(index, rows[index], { refreshFromItem: true });
 				return;
 			} else {
 				const company = itemDetailsContext.company as string;
@@ -108,25 +153,17 @@ export default function LineItemsTable({
 					return;
 				}
 
-				const requestId = (itemFetchRequestRef.current[index] || 0) + 1;
-				itemFetchRequestRef.current[index] = requestId;
-
 				rows[index] = resetLineItemForNewItemCode(rows[index], String(cellValue));
 				onChange(rows);
 
-				const fetched = await fetchDeliveryItemDetails(rows[index], {
-					company,
-					customer,
-					postingDate: itemDetailsContext.postingDate as string,
-				});
-
-				if (itemFetchRequestRef.current[index] !== requestId) return;
-
-				const latestRows = [...valueRef.current];
-				latestRows[index] = fetched;
-				onChange(latestRows);
+				await refetchItemDetails(index, rows[index], {});
 				return;
 			}
+		} else if (key === "uom" && cellValue && rows[index].item_code) {
+			onChange(rows);
+
+			await refetchItemDetails(index, rows[index], { updateRate: true });
+			return;
 		} else if (key === "qty" || key === "rate") {
 			rows[index] = recalculateRowAmounts(rows[index]);
 		}
@@ -186,10 +223,10 @@ export default function LineItemsTable({
 													doctype={column.linkDoctype}
 													value={String(row[column.key as keyof LineItemRow] || "")}
 													onChange={(v) => updateRow(index, column.key, v)}
-													disabled={disabled}
-													filters={column.linkFilters}
+													disabled={isLinkDisabled(row, column, disabled)}
+													filters={getLinkFilters(row, column)}
 													linkQuery={column.linkQuery}
-													allowCreate
+													allowCreate={column.key !== "uom"}
 													returnTo={window.location.pathname}
 													referenceDoctype={referenceDoctype}
 													dropdownPlacement="above"

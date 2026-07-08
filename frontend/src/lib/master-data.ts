@@ -75,6 +75,7 @@ export interface MasterDataDoc {
 }
 
 const ITEM_QUERY = "erpnext.controllers.queries.item_query";
+const UOM_QUERY = "erpnext.controllers.queries.get_item_uom_query";
 
 export type LineItemColumnType = "link" | "number" | "date" | "text" | "readonly";
 
@@ -104,7 +105,13 @@ export const PO_ITEM_COLUMNS: LineItemColumn[] = [
 	},
 	{ key: "schedule_date", label: "Required By", type: "date" },
 	{ key: "qty", label: "Quantity", type: "number" },
-	{ key: "uom", label: "UOM", type: "readonly", readonlyFormat: "text" },
+	{
+		key: "uom",
+		label: "UOM",
+		type: "link",
+		linkDoctype: "UOM",
+		linkQuery: UOM_QUERY,
+	},
 	{ key: "rate", label: "Rate", type: "number" },
 	{ key: "amount", label: "Amount", type: "readonly", readonlyFormat: "currency" },
 ];
@@ -119,7 +126,13 @@ export const DN_ITEM_COLUMNS: LineItemColumn[] = [
 		linkFilters: { is_sales_item: 1 },
 	},
 	{ key: "qty", label: "Quantity", type: "number" },
-	{ key: "uom", label: "UOM", type: "readonly", readonlyFormat: "text" },
+	{
+		key: "uom",
+		label: "UOM",
+		type: "link",
+		linkDoctype: "UOM",
+		linkQuery: UOM_QUERY,
+	},
 	{ key: "rate", label: "Rate", type: "number" },
 	{ key: "amount", label: "Amount", type: "readonly", readonlyFormat: "currency" },
 ];
@@ -403,7 +416,7 @@ function applyItemAmounts(row: LineItemRow): LineItemRow {
 function applyItemDetailsToRow(
 	row: LineItemRow,
 	itemDetails: Record<string, unknown>,
-	options: { refreshFromItem?: boolean } = {},
+	options: { refreshFromItem?: boolean; updateRate?: boolean } = {},
 ): LineItemRow {
 	const updated = { ...row };
 
@@ -427,7 +440,12 @@ function applyItemDetailsToRow(
 		updated.stock_uom = String(itemDetails.stock_uom);
 	}
 
-	if (options.refreshFromItem || !updated.rate || Number(updated.rate) === 0) {
+	if (
+		options.refreshFromItem ||
+		options.updateRate ||
+		!updated.rate ||
+		Number(updated.rate) === 0
+	) {
 		updated.rate =
 			Number(itemDetails.price_list_rate) ||
 			Number(itemDetails.rate) ||
@@ -471,6 +489,7 @@ export function resetLineItemForNewItemCode(row: LineItemRow, itemCode: string):
 export async function fetchPurchaseItemDetails(
 	row: LineItemRow,
 	context: { company?: string; supplier?: string; transactionDate?: string },
+	options: { refreshFromItem?: boolean; updateRate?: boolean } = { refreshFromItem: true },
 ): Promise<LineItemRow> {
 	const { company, supplier, transactionDate } = context;
 	if (!company || !supplier || !row.item_code) return row;
@@ -503,16 +522,19 @@ export async function fetchPurchaseItemDetails(
 				ignore_pricing_rule: 1,
 				doctype: "Purchase Order",
 				qty: row.qty || 1,
+				uom: row.uom,
+				conversion_factor: row.conversion_factor,
 			},
 		},
 	);
 
-	return applyItemDetailsToRow(row, itemDetails || {}, { refreshFromItem: true });
+	return applyItemDetailsToRow(row, itemDetails || {}, options);
 }
 
 export async function fetchDeliveryItemDetails(
 	row: LineItemRow,
 	context: { company?: string; customer?: string; postingDate?: string },
+	options: { refreshFromItem?: boolean; updateRate?: boolean } = {},
 ): Promise<LineItemRow> {
 	const { company, customer, postingDate } = context;
 	if (!company || !customer || !row.item_code) return row;
@@ -547,7 +569,7 @@ export async function fetchDeliveryItemDetails(
 		},
 	);
 
-	return applyItemDetailsToRow(row, itemDetails || {});
+	return applyItemDetailsToRow(row, itemDetails || {}, options);
 }
 
 export function recalculateRowAmounts(row: LineItemRow): LineItemRow {
